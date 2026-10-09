@@ -16,7 +16,7 @@ public sealed class MainForm : Form
     string? source;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.5"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.6"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -45,22 +45,15 @@ public sealed class MainForm : Form
         int si = 0; if (sheets.Count > 1) { using var pick = new Picker("Выберите лист BOM", sheets.Select(s => s.Name).ToArray()); if (pick.ShowDialog(this) != DialogResult.OK) return; si = pick.Index; }
         var sheet = sheets[si];
         int hi = sheet.Rows.FindIndex(r => r.Any(c => c.Equals("Designator", StringComparison.OrdinalIgnoreCase)) && r.Any(c => c.Equals("Quantity", StringComparison.OrdinalIgnoreCase)));
-        if (hi < 0) { using var pick = new Picker("Выберите строку заголовков", sheet.Rows.Select((r, i) => $"Строка данных {i + 1}: " + string.Join(" | ", r)).ToArray()); if (pick.ShowDialog(this) != DialogResult.OK) return; hi = pick.Index; }
-        var headers = sheet.Rows[hi]; var keys = new[] { "Line #", "Designator", "PartNumber", "Quantity", "Name" }; var map = new int[5];
-        for (int i = 0; i < keys.Length; i++)
-        {
-            var matches = Enumerable.Range(0, headers.Length).Where(c => headers[c].Trim().Equals(keys[i], StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (matches.Length == 1) map[i] = matches[0]; else { using var pick = new Picker($"Выберите столбец для «{keys[i]}»", headers.Select((h, c) => $"{ColumnName(c)}: {(h.Length == 0 ? "(без заголовка)" : h)}").ToArray()); if (pick.ShowDialog(this) != DialogResult.OK) return; map[i] = pick.Index; }
-        }
-        if (map.Distinct().Count() != map.Length) throw new InvalidDataException("Для разных полей выбраны одинаковые столбцы. Проверьте сопоставление.");
-        var records = sheet.Rows.Skip(hi + 1).Select(row => map.Select(c => c < row.Length ? row[c] : "").ToArray()).Where(r => r.Any(v => v.Length > 0)).ToList();
+        using var mapping = new ColumnMapping(sheet, Math.Max(hi, 0));
+        if (mapping.ShowDialog(this) != DialogResult.OK) return;
+        var records = Bom.ProjectRows(sheet, mapping.HeaderRow, mapping.Map);
         if (records.Count == 0) throw new InvalidDataException("После заголовков нет позиций BOM.");
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
         foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], "");
         package.Checked = MessageBox.Show(this, "Добавить поле «Упк, шт»? При выборе «Да» введите количество для каждой позиции в таблице.", "Упаковка", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Заполните «Упк, шт»." : "Проверьте данные перед генерацией.");
     });
-    static string ColumnName(int i) { var s = ""; for (i++; i > 0; i = (i - 1) / 26) s = (char)('A' + (i - 1) % 26) + s; return s; }
     // Use a conservative fit check; Word remains the final pagination engine.
     bool Fits(string text, int lines, bool bold = false)
     {

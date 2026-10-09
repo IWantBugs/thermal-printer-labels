@@ -73,4 +73,11 @@ try
         Check(rows.Skip(1).Select(r => r[Array.IndexOf(header, key)]).SequenceEqual(reversed.Skip(1).Select(r => r[Array.IndexOf(reversedHeader, key)])), "reordered column values: " + key);
 }
 finally { if (File.Exists(reordered)) File.Delete(reordered); }
+var shortHeader = new Sheet("Custom", new List<string[]> { new[] { "Line #" }, new[] { "1", "FYLS-0805URC", "D1", "1", "LED" } });
+Check(Bom.Columns(shortHeader, 0).Length == 5, "all data columns visible with incomplete header");
+Check(Bom.Columns(shortHeader, 0)[1].Contains("FYLS-0805URC"), "column options include example values");
+var custom = new Sheet("NameAsPart", new List<string[]> { new[] { "Line #", "Name", "Designator", "Quantity" }, new[] { "7", "RC0805JR-07330RL", "R1", "2" } });
+var mapped = Bom.ProjectRows(custom, 0, new[] { 0, 2, 1, 3, 1 }).Single();
+Check(mapped.SequenceEqual(new[] { "7", "R1", "RC0805JR-07330RL", "2", "RC0805JR-07330RL" }), "Name can supply Part and Sum without duplicate-column rejection");
+Check(Bom.ColumnName(26) == "AA", "column labels beyond Z");
 Console.WriteLine("All smoke checks passed.");

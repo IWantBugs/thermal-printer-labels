@@ -37,6 +37,24 @@ public static class Bom
         }
         return result;
     }
+    public static string[] Columns(Sheet sheet, int headerRow)
+    {
+        var headers = sheet.Rows[headerRow];
+        return Enumerable.Range(0, sheet.Rows.Max(r => r.Length)).Select(c =>
+        {
+            var name = c < headers.Length && headers[c].Length > 0 ? headers[c] : "(без заголовка)";
+            var samples = sheet.Rows.Skip(headerRow + 1).Take(3).Where(r => c < r.Length && r[c].Length > 0).Select(r => r[c]).Take(2);
+            return ColumnName(c) + ": " + name + "  —  " + string.Join(" / ", samples);
+        }).ToArray();
+    }
+    public static string ColumnName(int index)
+    {
+        var name = "";
+        for (index++; index > 0; index = (index - 1) / 26) name = (char)('A' + (index - 1) % 26) + name;
+        return name;
+    }
+    public static List<string[]> ProjectRows(Sheet sheet, int headerRow, int[] map) =>
+        sheet.Rows.Skip(headerRow + 1).Select(row => map.Select(c => c < row.Length ? row[c] : "").ToArray()).Where(row => row.Any(v => v.Length > 0)).ToList();
     public static string Product(string path) { var n = Path.GetFileNameWithoutExtension(path); return n.EndsWith("BOM", StringComparison.OrdinalIgnoreCase) ? n[..^3].TrimEnd('_', '-', ' ') : n; }
     public static string Output(string path) { var n = Path.GetFileNameWithoutExtension(path); return Path.Combine(Path.GetDirectoryName(path)!, (n.EndsWith("BOM", StringComparison.OrdinalIgnoreCase) ? n[..^3] + "ETC" : n + "_ETC") + ".docx"); }
 }
