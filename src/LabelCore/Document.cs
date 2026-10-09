@@ -14,9 +14,13 @@ public static class Document
         foreach (var side in new[] { "top", "left", "bottom", "right" })
             margins.Add(E(side, A("w", 20), A("type", "dxa")));
         var properties = E("tcPr", E("tcW", A("w", width), A("type", "dxa")), margins, E("vAlign", A("val", "center")));
-        var paragraphProperties = E("pPr", E("spacing", A("before", 0), A("after", 0), A("line", 180), A("lineRule", "exact")));
+        var paragraphProperties = E("pPr",
+            E("keepNext", A("val", 0)), E("keepLines", A("val", 0)),
+            E("widowControl", A("val", 0)), E("snapToGrid", A("val", 0)),
+            E("spacing", A("before", 0), A("after", 0), A("line", 180), A("lineRule", "exact")));
         var runProperties = E("rPr", E("rFonts", A("ascii", "Arial"), A("hAnsi", "Arial")), E("sz", A("val", 16)));
         if (heading) runProperties.Element(W + "rFonts")!.AddAfterSelf(E("b"));
+        paragraphProperties.Add(new XElement(runProperties));
         var run = E("r", runProperties, E("t", new XAttribute(XNamespace.Xml + "space", "preserve"), text));
         return E("tc", properties, E("p", paragraphProperties, run));
     }
@@ -31,8 +35,16 @@ public static class Document
         {
             if (i > 0)
             {
-                var spacing = E("spacing", A("before", 0), A("after", 0), A("line", 20), A("lineRule", "exact"));
-                body.Add(E("p", E("pPr", spacing), E("r", E("rPr", E("sz", A("val", 2))), E("br", A("type", "page")))));
+                // Start the separator ON the next page. An inline page-break
+                // character can first overflow from the previous table and then
+                // advance another page, creating alternating blank labels.
+                var separator = E("pPr",
+                    E("keepNext", A("val", 0)), E("keepLines", A("val", 0)),
+                    E("pageBreakBefore", A("val", 1)), E("widowControl", A("val", 0)),
+                    E("snapToGrid", A("val", 0)),
+                    E("spacing", A("before", 0), A("after", 0), A("line", 20), A("lineRule", "exact")),
+                    E("rPr", E("sz", A("val", 2)), E("szCs", A("val", 2))));
+                body.Add(E("p", separator));
             }
             var borders = E("tblBorders");
             foreach (var side in new[] { "top", "left", "bottom", "right", "insideH", "insideV" })
@@ -49,7 +61,7 @@ public static class Document
             if (label.Package is not null) rows.Add(("Упк, шт", label.Package));
             foreach (var (key, value) in rows)
             {
-                int height = key == "Sum" ? 567 : key == "Изд" ? 397 : 227;
+                int height = key == "Sum" ? 600 : key == "Изд" ? 420 : 220;
                 var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", key == "Изд" ? "atLeast" : "exact")));
                 table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд"), Cell(value, 2325, key == "Изд")));
             }
@@ -60,6 +72,7 @@ public static class Document
         var finalParagraphProperties = E("pPr",
             E("keepNext", A("val", 0)), E("keepLines", A("val", 0)),
             E("pageBreakBefore", A("val", 0)), E("widowControl", A("val", 0)),
+            E("snapToGrid", A("val", 0)),
             E("spacing", A("before", 0), A("after", 0), A("line", 20), A("lineRule", "exact")),
             E("rPr", E("sz", A("val", 2)), E("szCs", A("val", 2))));
         body.Add(E("p", finalParagraphProperties));

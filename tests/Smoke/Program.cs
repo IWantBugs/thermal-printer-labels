@@ -19,7 +19,10 @@ for (int i = 0; i < tables.Length; i++) {
  Check(cells[0] == "Изд" && cells[1] == $"Изделие: RS7_ADP_V1 [{expectedLabels[i].Line}]", "product heading and BOM Line #: " + expectedLabels[i].Line);
  Check((string?)first.Element(w + "trPr")?.Element(w + "trHeight")?.Attribute(w + "hRule") == "atLeast", "heading height can expand without clipping");
 }
- Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(doc.Descendants(w + "br").Count() == expectedLabels.Count - 1, "page breaks only between labels"); var tail = doc.Root!.Element(w + "body")!.Elements().Reverse().Skip(1).First();
+ Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(!doc.Descendants(w + "br").Any(), "no inline page-break characters that can overflow");
+Check(doc.Descendants(w + "pageBreakBefore").Count(e => (string?)e.Attribute(w + "val") == "1") == expectedLabels.Count - 1, "next-page separators only between labels");
+Check(tables.SelectMany(t => t.Descendants(w + "pPr")).All(p => (string?)p.Element(w + "rPr")?.Element(w + "sz")?.Attribute(w + "val") == "16"), "cell paragraph marks explicitly use 8 pt");
+Check(tables.All(t => t.Descendants(w + "trHeight").Sum(h => int.Parse((string)h.Attribute(w + "val")!)) + 228 + 40 < 2268), "table heights, margins and tiny paragraphs leave page space"); var tail = doc.Root!.Element(w + "body")!.Elements().Reverse().Skip(1).First();
 Check(tail.Name == w + "p" && !tail.Descendants(w + "br").Any(), "explicit trailing paragraph without page break");
 Check((string?)tail.Element(w + "pPr")?.Element(w + "spacing")?.Attribute(w + "line") == "20" && (string?)tail.Element(w + "pPr")?.Element(w + "rPr")?.Element(w + "sz")?.Attribute(w + "val") == "2", "trailing paragraph and paragraph mark limited to 1 pt");
 var size = doc.Descendants(w + "pgSz").Single(); Check((string?)size.Attribute(w + "w") == "3288" && (string?)size.Attribute(w + "h") == "2268", "58x40 mm page dimensions"); Check(z.GetEntry("[Content_Types].xml") != null && z.GetEntry("_rels/.rels") != null, "DOCX package relationships"); }
