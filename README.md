@@ -6,6 +6,8 @@
 
 [Скачать ZIP для Windows 10/11 x64](https://github.com/IWantBugs/thermal-printer-labels/raw/refs/heads/main/distribution/thermal-printer-labels-win-x64.zip) — около 63 МБ. Архив также доступен в каталоге `distribution`: откройте файл на GitHub и нажмите **Download raw file**.
 
+Версия **1.0.1**: шапка `Изд | Изделие: название [Line #]`, полужирный текст, расширяемая высота первой строки и верхний/нижний отступ 2 мм. После обновления заново сформируйте DOCX из BOM.
+
 ## Запуск
 
 Распакуйте архив и запустите `ThermalPrinterLabels.exe`. Установка .NET и Excel не нужна. Для предпросмотра и печати нужен установленный Microsoft Word. Для Xprinter XP-365B установите его драйвер Windows.

@@ -16,7 +16,7 @@ public sealed class MainForm : Form
     string? source;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.1"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -54,9 +54,9 @@ public sealed class MainForm : Form
     });
     static string ColumnName(int i) { var s = ""; for (i++; i > 0; i = (i - 1) / 26) s = (char)('A' + (i - 1) % 26) + s; return s; }
     // Use a conservative fit check; Word remains the final pagination engine.
-    bool Fits(string text, int lines)
+    bool Fits(string text, int lines, bool bold = false)
     {
-        using var g = CreateGraphics(); using var font = new Font("Arial", 8); using var sf = (StringFormat)StringFormat.GenericTypographic.Clone();
+        using var g = CreateGraphics(); using var font = new Font("Arial", 8, bold ? FontStyle.Bold : FontStyle.Regular); using var sf = (StringFormat)StringFormat.GenericTypographic.Clone();
         sf.FormatFlags &= ~StringFormatFlags.NoWrap;
         var width = 39f / 25.4f * g.DpiX;
         var size = g.MeasureString(text, font, new SizeF(width, 10000), sf);
@@ -76,9 +76,9 @@ public sealed class MainForm : Form
             if (new[] { line, des, part, qty, sum }.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException($"Позиция {row.Index + 1}: заполните Line #, Обозн., Парт, Кол-во и Sum.");
             if (!decimal.TryParse(qty.Replace(',', '.'), System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var q) || q <= 0) throw new InvalidDataException($"Позиция {row.Index + 1}: «Кол-во» должно быть положительным числом.");
             if (package.Checked && (!int.TryParse(pack, out var n) || n <= 0)) throw new InvalidDataException($"Позиция {row.Index + 1}: введите целое положительное «Упк, шт».");
-            if (!Fits($"{title} [{line}]", 2))
+            if (!Fits(Document.Heading(title, line), 2, true))
             {
-                int limit = title.Length; while (limit > 0 && !Fits($"{title[..limit]} [{line}]", 2)) limit--;
+                int limit = title.Length; while (limit > 0 && !Fits(Document.Heading(title[..limit], line), 2, true)) limit--;
                 if (limit == 0) throw new InvalidDataException($"Позиция {row.Index + 1}: номер Line # слишком длинный для этикетки.");
                 using var prompt = new TextPrompt($"Название изделия не помещается. Сократите его (для текущего текста до {limit} символов).", title, limit);
                 if (prompt.ShowDialog(this) != DialogResult.OK) return null;

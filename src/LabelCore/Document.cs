@@ -8,17 +8,20 @@ public static class Document
     static XElement E(string name, params object[] content) => new(W + name, content);
     static XAttribute A(string name, object value) => new(W + name, value);
 
-    static XElement Cell(string text, int width)
+    static XElement Cell(string text, int width, bool heading = false)
     {
         var margins = E("tcMar");
         foreach (var side in new[] { "top", "left", "bottom", "right" })
             margins.Add(E(side, A("w", 20), A("type", "dxa")));
-        var properties = E("tcPr", E("tcW", A("w", width), A("type", "dxa")), margins);
+        var properties = E("tcPr", E("tcW", A("w", width), A("type", "dxa")), margins, E("vAlign", A("val", "center")));
         var paragraphProperties = E("pPr", E("spacing", A("before", 0), A("after", 0), A("line", 180), A("lineRule", "exact")));
         var runProperties = E("rPr", E("rFonts", A("ascii", "Arial"), A("hAnsi", "Arial")), E("sz", A("val", 16)));
+        if (heading) runProperties.Element(W + "rFonts")!.AddAfterSelf(E("b"));
         var run = E("r", runProperties, E("t", new XAttribute(XNamespace.Xml + "space", "preserve"), text));
         return E("tc", properties, E("p", paragraphProperties, run));
     }
+
+    public static string Heading(string product, string line) => $"Изделие: {product} [{line}]";
 
     public static void Save(string path, string product, IReadOnlyList<Label> labels)
     {
@@ -39,7 +42,7 @@ public static class Document
             var label = labels[i];
             var rows = new List<(string Key, string Value)>
             {
-                ("Изд", $"{product} [{label.Line}]"),
+                ("Изд", Heading(product, label.Line)),
                 ("Обозн.", label.Designator), ("Парт", label.Part),
                 ("Кол-во", label.Quantity), ("Sum", label.Summary)
             };
@@ -47,13 +50,13 @@ public static class Document
             foreach (var (key, value) in rows)
             {
                 int height = key == "Sum" ? 567 : key == "Изд" ? 397 : 227;
-                var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", "exact")));
-                table.Add(E("tr", rowProperties, Cell(key, 850), Cell(value, 2325)));
+                var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", key == "Изд" ? "atLeast" : "exact")));
+                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд"), Cell(value, 2325, key == "Изд")));
             }
             body.Add(table);
         }
         var page = E("pgSz", A("w", 3288), A("h", 2268));
-        var marginsPage = E("pgMar", A("top", 57), A("bottom", 57), A("left", 57), A("right", 57), A("header", 0), A("footer", 0));
+        var marginsPage = E("pgMar", A("top", 114), A("bottom", 114), A("left", 57), A("right", 57), A("header", 0), A("footer", 0));
         body.Add(E("sectPr", page, marginsPage));
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
