@@ -16,7 +16,7 @@ public sealed class MainForm : Form
     string? source;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.4"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.5"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -106,7 +106,14 @@ public sealed class MainForm : Form
             path = Path.Combine(temporaryDirectory, Guid.NewGuid().ToString("N") + ".docx");
         }
         if (File.Exists(path) && MessageBox.Show(this, $"Файл уже существует:\n{path}\n\nЗаменить?", "Сохранение", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return null;
-        Document.Save(path, title, labels);
+        var candidate = path + "." + Guid.NewGuid().ToString("N") + ".docx";
+        try
+        {
+            Document.Save(candidate, title, labels);
+            WordLayout.Normalize(candidate, labels.Count);
+            File.Move(candidate, path, true);
+        }
+        finally { if (File.Exists(candidate)) File.Delete(candidate); }
         status.Text = singleRow == null
             ? $"Сохранено: {Path.GetFileName(path)}. Этикеток: {labels.Count}; сокращено Sum: {trimmed}."
             : $"Подготовлена этикетка для Line # {labels[0].Line}. Сокращено Sum: {trimmed}.";

@@ -8,14 +8,14 @@ public static class Document
     static XElement E(string name, params object[] content) => new(W + name, content);
     static XAttribute A(string name, object value) => new(W + name, value);
 
-    static XElement Cell(string text, int width, bool heading = false)
+    static XElement Cell(string text, int width, bool heading = false, bool keepNext = false)
     {
         var margins = E("tcMar");
         foreach (var side in new[] { "top", "left", "bottom", "right" })
-            margins.Add(E(side, A("w", 20), A("type", "dxa")));
+            margins.Add(E(side, A("w", side is "top" or "bottom" ? 0 : 20), A("type", "dxa")));
         var properties = E("tcPr", E("tcW", A("w", width), A("type", "dxa")), margins, E("vAlign", A("val", "center")));
         var paragraphProperties = E("pPr",
-            E("keepNext", A("val", 0)), E("keepLines", A("val", 0)),
+            E("keepNext", A("val", keepNext ? 1 : 0)), E("keepLines", A("val", 1)),
             E("widowControl", A("val", 0)), E("snapToGrid", A("val", 0)),
             E("spacing", A("before", 0), A("after", 0), A("line", 180), A("lineRule", "exact")));
         var runProperties = E("rPr", E("rFonts", A("ascii", "Arial"), A("hAnsi", "Arial")), E("sz", A("val", 16)));
@@ -61,9 +61,9 @@ public static class Document
             if (label.Package is not null) rows.Add(("Упк, шт", label.Package));
             foreach (var (key, value) in rows)
             {
-                int height = key == "Sum" ? 600 : key == "Изд" ? 420 : 220;
-                var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", key == "Изд" ? "atLeast" : "exact")));
-                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд"), Cell(value, 2325, key == "Изд")));
+                int height = key == "Sum" ? 567 : key == "Изд" ? 454 : 198;
+                var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", "exact")));
+                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд", key != rows[^1].Key), Cell(value, 2325, key == "Изд", key != rows[^1].Key)));
             }
             body.Add(table);
         }

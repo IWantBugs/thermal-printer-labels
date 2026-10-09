@@ -17,11 +17,15 @@ for (int i = 0; i < tables.Length; i++) {
  var first = tables[i].Elements(w + "tr").First();
  var cells = first.Elements(w + "tc").Select(c => string.Concat(c.Descendants(w + "t").Select(t => t.Value))).ToArray();
  Check(cells[0] == "Изд" && cells[1] == $"Изделие: RS7_ADP_V1 [{expectedLabels[i].Line}]", "product heading and BOM Line #: " + expectedLabels[i].Line);
- Check((string?)first.Element(w + "trPr")?.Element(w + "trHeight")?.Attribute(w + "hRule") == "atLeast", "heading height can expand without clipping");
+ Check((string?)first.Element(w + "trPr")?.Element(w + "trHeight")?.Attribute(w + "hRule") == "exact", "heading has a reserved 8 mm height");
 }
  Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(!doc.Descendants(w + "br").Any(), "no inline page-break characters that can overflow");
 Check(doc.Descendants(w + "pageBreakBefore").Count(e => (string?)e.Attribute(w + "val") == "1") == expectedLabels.Count - 1, "next-page separators only between labels");
 Check(tables.SelectMany(t => t.Descendants(w + "pPr")).All(p => (string?)p.Element(w + "rPr")?.Element(w + "sz")?.Attribute(w + "val") == "16"), "cell paragraph marks explicitly use 8 pt");
+foreach (var table in tables) {
+ var rs = table.Elements(w + "tr").ToArray();
+ for(int ri=0;ri<rs.Length;ri++) Check(rs[ri].Descendants(w + "keepNext").All(e=>(string?)e.Attribute(w + "val") == (ri < rs.Length-1 ? "1" : "0")), "table rows linked until last row");
+}
 Check(tables.All(t => t.Descendants(w + "trHeight").Sum(h => int.Parse((string)h.Attribute(w + "val")!)) + 228 + 40 < 2268), "table heights, margins and tiny paragraphs leave page space"); var tail = doc.Root!.Element(w + "body")!.Elements().Reverse().Skip(1).First();
 Check(tail.Name == w + "p" && !tail.Descendants(w + "br").Any(), "explicit trailing paragraph without page break");
 Check((string?)tail.Element(w + "pPr")?.Element(w + "spacing")?.Attribute(w + "line") == "20" && (string?)tail.Element(w + "pPr")?.Element(w + "rPr")?.Element(w + "sz")?.Attribute(w + "val") == "2", "trailing paragraph and paragraph mark limited to 1 pt");
