@@ -17,7 +17,8 @@ public sealed class MainForm : Form
     int generatedLabels;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.8"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.9"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -31,7 +32,9 @@ public sealed class MainForm : Form
             if (path != null) OpenWord(path, true, generatedLabels);
         });
         grid.SelectionChanged += (_, _) => single.Enabled = source != null && grid.CurrentRow != null;
-        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single]);
+        var about = new Button() { Text = "О программе", AutoSize = true };
+        about.Click += (_, _) => { using var info = new AboutForm(Icon); info.ShowDialog(this); };
+        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single, about]);
         var bottom = new FlowLayoutPanel() { Dock = DockStyle.Bottom, Height = 45, Padding = new Padding(8) }; bottom.Controls.Add(status);
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
         grid.Columns["Package"].Visible = false;
