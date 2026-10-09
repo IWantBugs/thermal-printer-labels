@@ -7,6 +7,9 @@ public record Label(string Line, string Designator, string Part, string Quantity
     public float DesignatorFont { get; init; } = 8;
     public int DesignatorLines { get; init; } = 1;
     public int SummaryLines { get; init; } = 3;
+    public float PartFont { get; init; } = 8;
+    public int PartLines { get; init; } = 1;
+    public string? PartContinuation { get; init; }
     public string? DesignatorPart { get; init; }
 }
 public static class Bom
@@ -60,7 +63,7 @@ public static class Bom
         return name;
     }
     public static List<string[]> ProjectRows(Sheet sheet, int headerRow, int[] map) =>
-        sheet.Rows.Skip(headerRow + 1).Select(row => map.Select(c => c < row.Length ? row[c] : "").ToArray()).Where(row => row.Any(v => v.Length > 0)).ToList();
+        sheet.Rows.Skip(headerRow + 1).Select(row => map.Select(c => c >= 0 && c < row.Length ? row[c] : "").ToArray()).Where(row => row.Any(v => v.Length > 0)).ToList();
     public static string Product(string path) { var n = Path.GetFileNameWithoutExtension(path); return n.EndsWith("BOM", StringComparison.OrdinalIgnoreCase) ? n[..^3].TrimEnd('_', '-', ' ') : n; }
     public static string Output(string path) { var n = Path.GetFileNameWithoutExtension(path); return Path.Combine(Path.GetDirectoryName(path)!, (n.EndsWith("BOM", StringComparison.OrdinalIgnoreCase) ? n[..^3] + "ETC" : n + "_ETC") + ".docx"); }
 }

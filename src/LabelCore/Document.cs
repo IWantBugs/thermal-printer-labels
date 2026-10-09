@@ -55,16 +55,16 @@ public static class Document
             var rows = new List<(string Key, string Value)>
             {
                 ("Изд", Heading(product, label.Line)),
-                ("Обозн." + (label.DesignatorPart is null ? "" : " " + label.DesignatorPart), label.Designator), ("Парт", label.Part),
+                ("Обозн." + (label.DesignatorPart is null ? "" : " " + label.DesignatorPart), label.Designator), ("Парт" + (label.PartContinuation is null ? "" : " " + label.PartContinuation), label.Part),
                 ("Кол-во", label.Quantity)
             };
-            if (label.SummaryLines > 0) rows.Add(("Sum", label.Summary));
+            if (label.SummaryLines > 0 && !string.IsNullOrWhiteSpace(label.Summary)) rows.Add(("Sum", label.Summary));
             if (label.Package is not null) rows.Add(("Упк, шт", label.Package));
             foreach (var (key, value) in rows)
             {
-                int height = key == "Sum" ? (int)Math.Round(Designators.SummaryHeight(label) * 1440 / 25.4) : key.StartsWith("Обозн.") ? (int)Math.Round(Designators.Height(label) * 1440 / 25.4) : key == "Изд" ? 454 : 198;
+                int height = key == "Sum" ? (int)Math.Round(Designators.SummaryHeight(label) * 1440 / 25.4) : key.StartsWith("Обозн.") ? (int)Math.Round(Designators.Height(label) * 1440 / 25.4) : key.StartsWith("Парт") ? (int)Math.Round(CriticalFields.Height(label.PartFont, label.PartLines) * 1440 / 25.4) : key == "Изд" ? 454 : 198;
                 var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", "exact")));
-                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд", key != rows[^1].Key), Cell(value, 2325, key == "Изд", key != rows[^1].Key, key.StartsWith("Обозн.") ? label.DesignatorFont : 8)));
+                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд", key != rows[^1].Key), Cell(value, 2325, key == "Изд", key != rows[^1].Key, key.StartsWith("Обозн.") ? label.DesignatorFont : key.StartsWith("Парт") ? label.PartFont : 8)));
             }
             body.Add(table);
         }

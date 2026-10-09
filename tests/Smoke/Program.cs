@@ -102,4 +102,34 @@ try {
  Check(string.Concat(tables.Select(t => t.Elements<DocumentFormat.OpenXml.Wordprocessing.TableRow>().ElementAt(1).Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().Last().InnerText)) == longDesignator.Designator, "generated DOCX retains the entire designation text");
  Check(tables.Where((t,i)=>parts[i].SummaryLines==0).All(t=>t.Elements<DocumentFormat.OpenXml.Wordprocessing.TableRow>().All(r=>r.Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().First().InnerText!="Sum")), "Sum row omitted when its space is given to designation");
 } finally { if (File.Exists(adaptivePath)) File.Delete(adaptivePath); }
+var noSummaryRows = Bom.ProjectRows(custom, 0, new[] { 0, 2, 1, 3, -1 });
+Check(noSummaryRows.Single()[4] == "", "unmapped optional Sum imports as empty");
+var blankSumLabel = labels[0] with { Summary = "" };
+Check(Designators.Fit(blankSumLabel, SimulatedFit)!.SummaryLines == 0, "empty Sum does not reserve label space");
+var optionalPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".docx");
+try {
+ foreach (var value in new[] { "", "Manually entered" }) {
+  var record = labels[0] with { Summary = value };
+  Document.Save(optionalPath, "RS7_ADP_V1", new[] { record });
+  using var xml = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(optionalPath, false);
+  var sumRows = xml.MainDocumentPart!.Document.Body!.Descendants<DocumentFormat.OpenXml.Wordprocessing.TableRow>().Where(r=>r.Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().First().InnerText=="Sum").ToArray();
+  Check(sumRows.Length == (value.Length==0 ? 0 : 1), "Sum row omitted when blank and restored for manual entry");
+  Check(!new DocumentFormat.OpenXml.Validation.OpenXmlValidator().Validate(xml).Any(), "optional Sum DOCX schema validates");
+ }
+} finally { if(File.Exists(optionalPath))File.Delete(optionalPath); }
+var longPart = labels[0] with { Part = new string('P', 70) };
+var fittedPart = CriticalFields.Fit(longPart, SimulatedFit)!;
+Check(fittedPart.Part == longPart.Part && fittedPart.PartLines > 1 && fittedPart.SummaryLines == 0, "full Part preserved using multiline space taken from Sum");
+var manyParts = CriticalFields.Split(labels[0] with { Part = new string('P', 300) }, SimulatedFit);
+Check(string.Concat(manyParts.Select(l=>l.Part)) == new string('P',300), "continuation labels preserve all Part characters");
+Check(manyParts.All(l=>l.Designator==labels[0].Designator && l.Line==labels[0].Line), "Part continuation retains designation and original Line");
+var partPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".docx");
+try {
+ Document.Save(partPath, "RS7_ADP_V1", new[] { fittedPart });
+ using var xml = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(partPath, false);
+ var rowsPart = xml.MainDocumentPart!.Document.Body!.Descendants<DocumentFormat.OpenXml.Wordprocessing.TableRow>().ToArray();
+ Check(rowsPart.Single(r=>r.Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().First().InnerText=="Парт").Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().Last().InnerText==longPart.Part, "generated DOCX preserves complete multiline Part");
+ Check(rowsPart.All(r=>r.Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().First().InnerText!="Sum"), "Sum removed for long Part");
+ Check(!new DocumentFormat.OpenXml.Validation.OpenXmlValidator().Validate(xml).Any(), "multiline Part DOCX schema validates");
+} finally { if(File.Exists(partPath))File.Delete(partPath); }
 Console.WriteLine("All smoke checks passed.");

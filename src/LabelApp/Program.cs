@@ -17,7 +17,7 @@ public sealed class MainForm : Form
     int generatedLabels;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.7"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.8"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -76,7 +76,7 @@ public sealed class MainForm : Form
         {
             string V(string key) => Convert.ToString(row.Cells[key].Value)?.Trim() ?? "";
             string line = V("Line"), des = V("Designator"), part = V("Part"), qty = V("Quantity"), sum = V("Summary"), pack = V("Package");
-            if (new[] { line, des, part, qty, sum }.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException($"Позиция {row.Index + 1}: заполните Line #, Обозн., Парт, Кол-во и Sum.");
+            if (new[] { line, des, part, qty }.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException($"Позиция {row.Index + 1}: заполните Line #, Обозн., Парт и Кол-во.");
             if (!decimal.TryParse(qty.Replace(',', '.'), System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var q) || q <= 0) throw new InvalidDataException($"Позиция {row.Index + 1}: «Кол-во» должно быть положительным числом.");
             if (package.Checked && (!int.TryParse(pack, out var n) || n <= 0)) throw new InvalidDataException($"Позиция {row.Index + 1}: введите целое положительное «Упк, шт».");
             if (!Fits(Document.Heading(title, line), 2, true))
@@ -87,7 +87,7 @@ public sealed class MainForm : Form
                 if (prompt.ShowDialog(this) != DialogResult.OK) return null;
                 product.Text = prompt.Value; return Generate(singleRow);
             }
-            foreach (var (name, value) in new[] { ("Парт", part), ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
+            foreach (var (name, value) in new[] { ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
             var original = new BomLabel(line, des, part, qty, sum, package.Checked ? pack : null);
             bool FitDesignation(string text, float font, int lines) => Fits(text, lines, false, font);
             var fitted = Designators.Fit(original, FitDesignation);
@@ -95,7 +95,7 @@ public sealed class MainForm : Form
             if (fitted != null) parts = [fitted];
             else
             {
-                if (MessageBox.Show(this, $"Line # {line}: все обозначения не помещаются на одной этикетке даже шрифтом 7 пт. Разбить позицию на несколько этикеток? Все обозначения будут сохранены, Кол-во останется на одну плату.", "Длинное обозначение", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return null;
+                if (MessageBox.Show(this, $"Line # {line}: полные «Обозн.» и «Парт» вместе не помещаются на одной этикетке даже шрифтом 7 пт. Разбить позицию на несколько этикеток? Оба поля будут сохранены полностью, Кол-во останется на одну плату.", "Длинное обозначение", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return null;
                 parts = Designators.Split(original, FitDesignation);
             }
             foreach (var partLabel in parts)

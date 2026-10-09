@@ -5,11 +5,12 @@ namespace LabelApp;
 internal sealed class ColumnMapping : Form
 {
     readonly Sheet sheet;
+    bool refreshing;
     readonly ComboBox header = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly ComboBox[] fields = Enumerable.Range(0, 5).Select(_ => new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, DropDownWidth = 1000 }).ToArray();
     readonly string[] expected = ["Line #", "Designator", "PartNumber", "Quantity", "Name"];
     public int HeaderRow => header.SelectedIndex;
-    public int[] Map => fields.Select(c => c.SelectedIndex).ToArray();
+    public int[] Map => fields.Select((c, i) => c.SelectedIndex - (i == 4 ? 1 : 0)).ToArray();
 
     public ColumnMapping(Sheet sheet, int headerRow)
     {
@@ -22,7 +23,7 @@ internal sealed class ColumnMapping : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "Строка заголовков", AutoSize = true }, 0, 0);
         layout.Controls.Add(header, 1, 0);
-        var labels = new[] { "Номер (Line #)", "Обозн. (Designator)", "Парт (PartNumber)", "Кол-во (Quantity)", "Sum (Name)" };
+        var labels = new[] { "Номер (Line #)", "Обозн. (Designator)", "Парт (PartNumber)", "Кол-во (Quantity)", "Sum (необязательно)" };
         for (int i = 0; i < fields.Length; i++)
         {
             layout.Controls.Add(new Label { Text = labels[i], AutoSize = true }, 0, i + 1);
@@ -45,19 +46,30 @@ internal sealed class ColumnMapping : Form
         buttons.Controls.Add(cancel); buttons.Controls.Add(accept);
         Controls.Add(layout); Controls.Add(buttons); AcceptButton = accept; CancelButton = cancel;
         header.Items.AddRange(sheet.Rows.Select((r, i) => $"Строка данных {i + 1}: " + string.Join(" | ", r)).ToArray());
+        fields[2].SelectedIndexChanged += (_, _) =>
+        {
+            // Name may hold the part number, rather than a separate summary.
+            if (!refreshing && fields[2].SelectedIndex >= 0 && fields[4].SelectedIndex > 0
+                && fields[4].SelectedIndex - 1 == fields[2].SelectedIndex)
+                fields[4].SelectedIndex = 0;
+        };
         header.SelectedIndexChanged += (_, _) => RefreshColumns();
         header.SelectedIndex = headerRow;
     }
 
     void RefreshColumns()
     {
+        refreshing = true;
         var options = Bom.Columns(sheet, HeaderRow);
         var names = sheet.Rows[HeaderRow];
         for (int i = 0; i < fields.Length; i++)
         {
-            fields[i].Items.Clear(); fields[i].Items.AddRange(options);
+            fields[i].Items.Clear();
+            if (i == 4) fields[i].Items.Add("Не использовать — заполню вручную при необходимости");
+            fields[i].Items.AddRange(options);
             var matches = Enumerable.Range(0, names.Length).Where(c => names[c].Trim().Equals(expected[i], StringComparison.OrdinalIgnoreCase)).ToArray();
-            fields[i].SelectedIndex = matches.Length == 1 ? matches[0] : -1;
+            fields[i].SelectedIndex = matches.Length == 1 ? matches[0] + (i == 4 ? 1 : 0) : i == 4 ? 0 : -1;
         }
+        refreshing = false;
     }
 }
