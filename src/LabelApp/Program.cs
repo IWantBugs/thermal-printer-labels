@@ -16,7 +16,7 @@ public sealed class MainForm : Form
     string? source;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.1"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.2"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());

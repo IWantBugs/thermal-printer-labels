@@ -19,7 +19,10 @@ for (int i = 0; i < tables.Length; i++) {
  Check(cells[0] == "Изд" && cells[1] == $"Изделие: RS7_ADP_V1 [{labels[i].Line}]", "product heading and BOM Line #: " + labels[i].Line);
  Check((string?)first.Element(w + "trPr")?.Element(w + "trHeight")?.Attribute(w + "hRule") == "atLeast", "heading height can expand without clipping");
 }
- Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(doc.Descendants(w + "br").Count() == 4, "four explicit page breaks"); var size = doc.Descendants(w + "pgSz").Single(); Check((string?)size.Attribute(w + "w") == "3288" && (string?)size.Attribute(w + "h") == "2268", "58x40 mm page dimensions"); Check(z.GetEntry("[Content_Types].xml") != null && z.GetEntry("_rels/.rels") != null, "DOCX package relationships"); }
+ Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(doc.Descendants(w + "br").Count() == 4, "four explicit page breaks"); var tail = doc.Root!.Element(w + "body")!.Elements().Reverse().Skip(1).First();
+Check(tail.Name == w + "p" && !tail.Descendants(w + "br").Any(), "explicit trailing paragraph without page break");
+Check((string?)tail.Element(w + "pPr")?.Element(w + "spacing")?.Attribute(w + "line") == "20" && (string?)tail.Element(w + "pPr")?.Element(w + "rPr")?.Element(w + "sz")?.Attribute(w + "val") == "2", "trailing paragraph and paragraph mark limited to 1 pt");
+var size = doc.Descendants(w + "pgSz").Single(); Check((string?)size.Attribute(w + "w") == "3288" && (string?)size.Attribute(w + "h") == "2268", "58x40 mm page dimensions"); Check(z.GetEntry("[Content_Types].xml") != null && z.GetEntry("_rels/.rels") != null, "DOCX package relationships"); }
 Document.Save(args[1], "RS7_ADP_V1", labels); Verify(args[1], 6);
 Document.Save(args[1], "RS7_ADP_V1", labels.Select(l => l with { Package = null }).ToArray()); Verify(args[1], 5);
 Check(Path.GetFileName(Bom.Output("/tmp/Название-BOM.xlsx")) == "Название-ETC.docx", "source name and separator preserved");

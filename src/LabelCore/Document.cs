@@ -55,6 +55,14 @@ public static class Document
             }
             body.Add(table);
         }
+        // Word requires a paragraph after the final table. Without explicit
+        // formatting it inserts a Normal paragraph that can overflow a label.
+        var finalParagraphProperties = E("pPr",
+            E("keepNext", A("val", 0)), E("keepLines", A("val", 0)),
+            E("pageBreakBefore", A("val", 0)), E("widowControl", A("val", 0)),
+            E("spacing", A("before", 0), A("after", 0), A("line", 20), A("lineRule", "exact")),
+            E("rPr", E("sz", A("val", 2)), E("szCs", A("val", 2))));
+        body.Add(E("p", finalParagraphProperties));
         var page = E("pgSz", A("w", 3288), A("h", 2268));
         var marginsPage = E("pgMar", A("top", 114), A("bottom", 114), A("left", 57), A("right", 57), A("header", 0), A("footer", 0));
         body.Add(E("sectPr", page, marginsPage));
