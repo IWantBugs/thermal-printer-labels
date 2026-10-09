@@ -12,19 +12,34 @@ Check(labels.Count(l => l.Designator == "U1") == 1, "no duplicate alternative U1
 Check(Bom.Product(args[0]) == "RS7_ADP_V1", "product from source filename");
 Check(Path.GetFileName(Bom.Output(args[0])) == "RS7_ADP_V1_ETC.docx", "ETC output preserves source product");
 XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-void Verify(string path, int rowsPerLabel) { using (var word = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, false)) { var errors = new DocumentFormat.OpenXml.Validation.OpenXmlValidator().Validate(word).ToArray(); Check(errors.Length == 0, "Open XML schema validation: " + string.Join("; ", errors.Select(e => e.Description))); } using var z = ZipFile.OpenRead(path); using var stream = z.GetEntry("word/document.xml")!.Open(); var doc = XDocument.Load(stream); var tables = doc.Descendants(w + "tbl").ToArray(); Check(tables.Length == 5, "five label tables");
+void Verify(string path, int rowsPerLabel, IReadOnlyList<Label>? expected = null) { var expectedLabels = expected ?? labels; using (var word = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, false)) { var errors = new DocumentFormat.OpenXml.Validation.OpenXmlValidator().Validate(word).ToArray(); Check(errors.Length == 0, "Open XML schema validation: " + string.Join("; ", errors.Select(e => e.Description))); } using var z = ZipFile.OpenRead(path); using var stream = z.GetEntry("word/document.xml")!.Open(); var doc = XDocument.Load(stream); var tables = doc.Descendants(w + "tbl").ToArray(); Check(tables.Length == expectedLabels.Count, "label table count: " + expectedLabels.Count);
 for (int i = 0; i < tables.Length; i++) {
  var first = tables[i].Elements(w + "tr").First();
  var cells = first.Elements(w + "tc").Select(c => string.Concat(c.Descendants(w + "t").Select(t => t.Value))).ToArray();
- Check(cells[0] == "Изд" && cells[1] == $"Изделие: RS7_ADP_V1 [{labels[i].Line}]", "product heading and BOM Line #: " + labels[i].Line);
+ Check(cells[0] == "Изд" && cells[1] == $"Изделие: RS7_ADP_V1 [{expectedLabels[i].Line}]", "product heading and BOM Line #: " + expectedLabels[i].Line);
  Check((string?)first.Element(w + "trPr")?.Element(w + "trHeight")?.Attribute(w + "hRule") == "atLeast", "heading height can expand without clipping");
 }
- Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(doc.Descendants(w + "br").Count() == 4, "four explicit page breaks"); var tail = doc.Root!.Element(w + "body")!.Elements().Reverse().Skip(1).First();
+ Check(tables.All(t => t.Elements(w + "tr").Count() == rowsPerLabel), "optional package row count"); Check(doc.Descendants(w + "br").Count() == expectedLabels.Count - 1, "page breaks only between labels"); var tail = doc.Root!.Element(w + "body")!.Elements().Reverse().Skip(1).First();
 Check(tail.Name == w + "p" && !tail.Descendants(w + "br").Any(), "explicit trailing paragraph without page break");
 Check((string?)tail.Element(w + "pPr")?.Element(w + "spacing")?.Attribute(w + "line") == "20" && (string?)tail.Element(w + "pPr")?.Element(w + "rPr")?.Element(w + "sz")?.Attribute(w + "val") == "2", "trailing paragraph and paragraph mark limited to 1 pt");
 var size = doc.Descendants(w + "pgSz").Single(); Check((string?)size.Attribute(w + "w") == "3288" && (string?)size.Attribute(w + "h") == "2268", "58x40 mm page dimensions"); Check(z.GetEntry("[Content_Types].xml") != null && z.GetEntry("_rels/.rels") != null, "DOCX package relationships"); }
 Document.Save(args[1], "RS7_ADP_V1", labels); Verify(args[1], 6);
 Document.Save(args[1], "RS7_ADP_V1", labels.Select(l => l with { Package = null }).ToArray()); Verify(args[1], 5);
+
+var singlePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".docx");
+try {
+    var singleLabel = new[] { labels[3] };
+    Document.Save(singlePath, "RS7_ADP_V1", singleLabel); Verify(singlePath, 6, singleLabel);
+    using (var zip = ZipFile.OpenRead(singlePath)) {
+        using var stream = zip.GetEntry("word/document.xml")!.Open(); var xml = XDocument.Load(stream);
+        var values = xml.Descendants(w + "tbl").Single().Elements(w + "tr").Select(r => string.Concat(r.Elements(w + "tc").Last().Descendants(w + "t").Select(t => t.Value))).ToArray();
+        Check(values[1] == "U1" && values[2] == labels[3].Part, "selected U1 row data retained, other BOM rows excluded");
+    }
+    var singleNoPackage = new[] { labels[3] with { Package = null } };
+    Document.Save(singlePath, "RS7_ADP_V1", singleNoPackage); Verify(singlePath, 5, singleNoPackage);
+    Verify(args[1], 5);
+} finally { if (File.Exists(singlePath)) File.Delete(singlePath); }
+
 Check(Path.GetFileName(Bom.Output("/tmp/Название-BOM.xlsx")) == "Название-ETC.docx", "source name and separator preserved");
 Check(Bom.Product("/tmp/Название-BOM.xlsx") == "Название", "product suffix removal");
 var reordered = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".xlsx");

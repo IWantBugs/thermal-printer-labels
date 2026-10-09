@@ -9,20 +9,28 @@ internal static class Program
 }
 public sealed class MainForm : Form
 {
-    readonly DataGridView grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false };
+    readonly DataGridView grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false, MultiSelect = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect };
     readonly TextBox product = new() { Width = 220 };
     readonly CheckBox package = new() { Text = "Добавить «Упк, шт»", AutoSize = true };
     readonly Label status = new() { AutoSize = true, Text = "Выберите BOM (.xlsx). Данные можно исправить перед сохранением." };
     string? source;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.2"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.3"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
         var preview = new Button() { Text = "Предпросмотр в Word", AutoSize = true }; preview.Click += (_, _) => Run(() => { var p = Generate(); if (p != null) OpenWord(p, false); });
         var print = new Button() { Text = "Печать с предпросмотром", AutoSize = true }; print.Click += (_, _) => Run(() => { var p = Generate(); if (p != null) OpenWord(p, true); });
-        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print]);
+        var single = new Button() { Text = "Сформировать этикетку из строки", AutoSize = true, Enabled = false };
+        single.Click += (_, _) => Run(() =>
+        {
+            var row = grid.CurrentRow ?? throw new InvalidOperationException("Выберите строку BOM в таблице.");
+            var path = Generate(row);
+            if (path != null) OpenWord(path, true, 1);
+        });
+        grid.SelectionChanged += (_, _) => single.Enabled = source != null && grid.CurrentRow != null;
+        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single]);
         var bottom = new FlowLayoutPanel() { Dock = DockStyle.Bottom, Height = 45, Padding = new Padding(8) }; bottom.Controls.Add(status);
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
         grid.Columns["Package"].Visible = false;
@@ -63,13 +71,14 @@ public sealed class MainForm : Form
         return size.Width <= width + 0.5f && size.Height <= lines * font.GetHeight(g) + 0.5f;
     }
     string Shorten(string value) { if (Fits(value, 3)) return value; var elements = System.Globalization.StringInfo.ParseCombiningCharacters(value); for (int i = elements.Length - 1; i >= 0; i--) { var s = value[..elements[i]].TrimEnd() + "…"; if (Fits(s, 3)) return s; } return "…"; }
-    string? Generate()
+    string? Generate(DataGridViewRow? singleRow = null)
     {
         grid.EndEdit(); Validate();
         if (source is null) throw new InvalidOperationException("Сначала выберите BOM.");
         var title = product.Text.Trim(); if (title.Length == 0) throw new InvalidDataException("Введите название изделия.");
         var labels = new List<BomLabel>(); int trimmed = 0;
-        foreach (DataGridViewRow row in grid.Rows)
+        var selectedRows = singleRow == null ? grid.Rows.Cast<DataGridViewRow>().ToArray() : new[] { singleRow };
+        foreach (var row in selectedRows)
         {
             string V(string key) => Convert.ToString(row.Cells[key].Value)?.Trim() ?? "";
             string line = V("Line"), des = V("Designator"), part = V("Part"), qty = V("Quantity"), sum = V("Summary"), pack = V("Package");
@@ -82,19 +91,28 @@ public sealed class MainForm : Form
                 if (limit == 0) throw new InvalidDataException($"Позиция {row.Index + 1}: номер Line # слишком длинный для этикетки.");
                 using var prompt = new TextPrompt($"Название изделия не помещается. Сократите его (для текущего текста до {limit} символов).", title, limit);
                 if (prompt.ShowDialog(this) != DialogResult.OK) return null;
-                product.Text = prompt.Value; return Generate();
+                product.Text = prompt.Value; return Generate(singleRow);
             }
             foreach (var (name, value) in new[] { ("Обозн.", des), ("Парт", part), ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
             var shortSum = Shorten(sum); if (shortSum != sum) trimmed++;
             labels.Add(new BomLabel(line, des, part, qty, shortSum, package.Checked ? pack : null));
         }
-        var path = Bom.Output(source);
+        string path;
+        if (singleRow == null) path = Bom.Output(source);
+        else
+        {
+            var temporaryDirectory = Path.Combine(Path.GetTempPath(), "ThermalPrinterLabels");
+            Directory.CreateDirectory(temporaryDirectory);
+            path = Path.Combine(temporaryDirectory, Guid.NewGuid().ToString("N") + ".docx");
+        }
         if (File.Exists(path) && MessageBox.Show(this, $"Файл уже существует:\n{path}\n\nЗаменить?", "Сохранение", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return null;
         Document.Save(path, title, labels);
-        status.Text = $"Сохранено: {Path.GetFileName(path)}. Этикеток: {labels.Count}; сокращено Sum: {trimmed}.";
+        status.Text = singleRow == null
+            ? $"Сохранено: {Path.GetFileName(path)}. Этикеток: {labels.Count}; сокращено Sum: {trimmed}."
+            : $"Подготовлена этикетка для Line # {labels[0].Line}. Сокращено Sum: {trimmed}.";
         return path;
     }
-    void OpenWord(string path, bool printing)
+    void OpenWord(string path, bool printing, int? labelCount = null)
     {
         dynamic? word = null, doc = null;
         try
@@ -103,9 +121,10 @@ public sealed class MainForm : Form
             word = Activator.CreateInstance(type)!; word.Visible = true;
             doc = word.Documents.Open(path, ReadOnly: true); doc.Repaginate();
             int pages = doc.ComputeStatistics(2);
-            if (pages != grid.Rows.Count) MessageBox.Show(this, $"Word насчитал страниц: {pages}; этикеток: {grid.Rows.Count}. Проверьте переносы и шрифты перед печатью.", "Проверка макета", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            int expectedLabels = labelCount ?? grid.Rows.Count;
+            if (pages != expectedLabels) MessageBox.Show(this, $"Word насчитал страниц: {pages}; этикеток: {expectedLabels}. Проверьте переносы и шрифты перед печатью.", "Проверка макета", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             doc.PrintPreview();
-            if (printing && pages == grid.Rows.Count && MessageBox.Show(this, "Проверьте макет в открытом Word. Открыть диалог печати?\n\nВыберите Xprinter XP-365B, бумагу 58×40 мм и масштаб 100% (без подгонки). Документ будет напечатан только после подтверждения в Word.", "Печать", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) { doc.ClosePrintPreview(); word.Dialogs[88].Show(); }
+            if (printing && pages == expectedLabels && MessageBox.Show(this, "Проверьте макет в открытом Word. Открыть диалог печати?\n\nВыберите Xprinter XP-365B, бумагу 58×40 мм и масштаб 100% (без подгонки). Документ будет напечатан только после подтверждения в Word.", "Печать", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) { doc.ClosePrintPreview(); word.Dialogs[88].Show(); }
         }
         finally { if (doc != null) Marshal.ReleaseComObject(doc); if (word != null) Marshal.ReleaseComObject(word); }
     }
