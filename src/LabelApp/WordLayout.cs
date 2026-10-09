@@ -1,11 +1,13 @@
 using System.Runtime.InteropServices;
+using LabelCore;
 namespace LabelApp;
 
 /// <summary>Validate actual Word pagination before replacing the user's ETC file.</summary>
 internal static class WordLayout
 {
-    public static void Normalize(string path, int expectedLabels)
+    public static void Normalize(string path, IReadOnlyList<LabelCore.Label> labels)
     {
+        int expectedLabels = labels.Count;
         dynamic? word = null, doc = null;
         try
         {
@@ -46,7 +48,28 @@ internal static class WordLayout
                         try
                         {
                             row.HeightRule = 2; // wdRowHeightExactly
-                            row.Height = Points(r == 1 ? 8 : r == 5 ? 10 : 3.5f);
+                            row.Height = Points(r == 1 ? 8 : r == 2 ? Designators.Height(labels[i - 1]) : r == 5 && labels[i - 1].SummaryLines > 0 ? Designators.SummaryHeight(labels[i - 1]) : 3.5f);
+                            if (r == 2)
+                            {
+                                dynamic cell = table.Cell(2, 2), range = cell.Range;
+                                try
+                                {
+                                    range.Font.Size = labels[i - 1].DesignatorFont;
+                                    range.ParagraphFormat.LineSpacing = labels[i - 1].DesignatorFont + 1;
+                                    dynamic text = range.Duplicate;
+                                    int lines;
+                                    try
+                                    {
+                                        // Exclude the paragraph and end-of-cell marks from line statistics.
+                                        text.End = Math.Max((int)text.Start, (int)text.End - 2);
+                                        lines = text.ComputeStatistics(1);
+                                    }
+                                    finally { Release(text); }
+                                    if (lines > labels[i - 1].DesignatorLines)
+                                        throw new InvalidDataException($"Word переносит обозначение Line # {labels[i - 1].Line} на {lines} строк. Документ не сохранён, чтобы не обрезать обозначения.");
+                                }
+                                finally { Release(range); Release(cell); }
+                            }
                             if (r == rows) row.Range.ParagraphFormat.KeepWithNext = 0;
                         }
                         finally { Release(row); }

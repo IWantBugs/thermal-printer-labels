@@ -80,4 +80,26 @@ var custom = new Sheet("NameAsPart", new List<string[]> { new[] { "Line #", "Nam
 var mapped = Bom.ProjectRows(custom, 0, new[] { 0, 2, 1, 3, 1 }).Single();
 Check(mapped.SequenceEqual(new[] { "7", "R1", "RC0805JR-07330RL", "2", "RC0805JR-07330RL" }), "Name can supply Part and Sum without duplicate-column rejection");
 Check(Bom.ColumnName(26) == "AA", "column labels beyond Z");
+var longDesignator = labels[0] with { Designator = string.Join(", ", Enumerable.Range(1, 40).Select(i => "R" + i)) };
+bool SimulatedFit(string text, float font, int lines) => text.Length <= (font == 8 ? 20 : 24) * lines;
+Check(Designators.Fit(labels[0], SimulatedFit)!.DesignatorLines == 1, "short designation retains original layout");
+var twoLines = Designators.Fit(labels[0] with { Designator = new string('R', 30) }, SimulatedFit)!;
+Check(twoLines.DesignatorLines == 2 && twoLines.SummaryLines == 2, "designation receives two lines with room taken from Sum");
+var fourLines = Designators.Fit(labels[0] with { Designator = new string('R', 105) }, SimulatedFit)!;
+Check(fourLines.DesignatorFont == 7 && fourLines.DesignatorLines == 5 && fourLines.SummaryLines == 0, "long designation replaces Sum and uses five lines at 7 pt");
+var omitSummary = Designators.Fit(labels[0] with { Designator = new string('R', 70) }, SimulatedFit)!;
+Check(omitSummary.DesignatorFont == 8 && omitSummary.DesignatorLines == 4 && omitSummary.SummaryLines == 0, "remove Sum before reducing designation font");
+var parts = Designators.Split(longDesignator, SimulatedFit);
+Check(string.Concat(parts.Select(l => l.Designator)) == longDesignator.Designator, "split retains every designation character and separator");
+Check(parts.All(l => l.Line == longDesignator.Line && l.Quantity == longDesignator.Quantity), "splitting retains original BOM Line and per-board quantity");
+var adaptivePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".docx");
+try {
+ Document.Save(adaptivePath, "RS7_ADP_V1", parts);
+ using var openXml = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(adaptivePath, false);
+ Check(!new DocumentFormat.OpenXml.Validation.OpenXmlValidator().Validate(openXml).Any(), "adaptive multi-label DOCX validates against Open XML");
+ var tables = openXml.MainDocumentPart!.Document.Body!.Elements<DocumentFormat.OpenXml.Wordprocessing.Table>().ToArray();
+ Check(tables.Length == parts.Count, "all designation continuation parts have a label");
+ Check(string.Concat(tables.Select(t => t.Elements<DocumentFormat.OpenXml.Wordprocessing.TableRow>().ElementAt(1).Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().Last().InnerText)) == longDesignator.Designator, "generated DOCX retains the entire designation text");
+ Check(tables.Where((t,i)=>parts[i].SummaryLines==0).All(t=>t.Elements<DocumentFormat.OpenXml.Wordprocessing.TableRow>().All(r=>r.Elements<DocumentFormat.OpenXml.Wordprocessing.TableCell>().First().InnerText!="Sum")), "Sum row omitted when its space is given to designation");
+} finally { if (File.Exists(adaptivePath)) File.Delete(adaptivePath); }
 Console.WriteLine("All smoke checks passed.");

@@ -8,7 +8,7 @@ public static class Document
     static XElement E(string name, params object[] content) => new(W + name, content);
     static XAttribute A(string name, object value) => new(W + name, value);
 
-    static XElement Cell(string text, int width, bool heading = false, bool keepNext = false)
+    static XElement Cell(string text, int width, bool heading = false, bool keepNext = false, float font = 8)
     {
         var margins = E("tcMar");
         foreach (var side in new[] { "top", "left", "bottom", "right" })
@@ -17,8 +17,8 @@ public static class Document
         var paragraphProperties = E("pPr",
             E("keepNext", A("val", keepNext ? 1 : 0)), E("keepLines", A("val", 1)),
             E("widowControl", A("val", 0)), E("snapToGrid", A("val", 0)),
-            E("spacing", A("before", 0), A("after", 0), A("line", 180), A("lineRule", "exact")));
-        var runProperties = E("rPr", E("rFonts", A("ascii", "Arial"), A("hAnsi", "Arial")), E("sz", A("val", 16)));
+            E("spacing", A("before", 0), A("after", 0), A("line", (int)((font + 1) * 20)), A("lineRule", "exact")));
+        var runProperties = E("rPr", E("rFonts", A("ascii", "Arial"), A("hAnsi", "Arial")), E("sz", A("val", (int)(font * 2))));
         if (heading) runProperties.Element(W + "rFonts")!.AddAfterSelf(E("b"));
         paragraphProperties.Add(new XElement(runProperties));
         var run = E("r", runProperties, E("t", new XAttribute(XNamespace.Xml + "space", "preserve"), text));
@@ -55,15 +55,16 @@ public static class Document
             var rows = new List<(string Key, string Value)>
             {
                 ("Изд", Heading(product, label.Line)),
-                ("Обозн.", label.Designator), ("Парт", label.Part),
-                ("Кол-во", label.Quantity), ("Sum", label.Summary)
+                ("Обозн." + (label.DesignatorPart is null ? "" : " " + label.DesignatorPart), label.Designator), ("Парт", label.Part),
+                ("Кол-во", label.Quantity)
             };
+            if (label.SummaryLines > 0) rows.Add(("Sum", label.Summary));
             if (label.Package is not null) rows.Add(("Упк, шт", label.Package));
             foreach (var (key, value) in rows)
             {
-                int height = key == "Sum" ? 567 : key == "Изд" ? 454 : 198;
+                int height = key == "Sum" ? (int)Math.Round(Designators.SummaryHeight(label) * 1440 / 25.4) : key.StartsWith("Обозн.") ? (int)Math.Round(Designators.Height(label) * 1440 / 25.4) : key == "Изд" ? 454 : 198;
                 var rowProperties = E("trPr", E("cantSplit"), E("trHeight", A("val", height), A("hRule", "exact")));
-                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд", key != rows[^1].Key), Cell(value, 2325, key == "Изд", key != rows[^1].Key)));
+                table.Add(E("tr", rowProperties, Cell(key, 850, key == "Изд", key != rows[^1].Key), Cell(value, 2325, key == "Изд", key != rows[^1].Key, key.StartsWith("Обозн.") ? label.DesignatorFont : 8)));
             }
             body.Add(table);
         }

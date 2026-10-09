@@ -14,9 +14,10 @@ public sealed class MainForm : Form
     readonly CheckBox package = new() { Text = "Добавить «Упк, шт»", AutoSize = true };
     readonly Label status = new() { AutoSize = true, Text = "Выберите BOM (.xlsx). Данные можно исправить перед сохранением." };
     string? source;
+    int generatedLabels;
     public MainForm()
     {
-        Text = "BOM → этикетки 58×40 мм · 1.0.6"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "BOM → этикетки 58×40 мм · 1.0.7"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -27,7 +28,7 @@ public sealed class MainForm : Form
         {
             var row = grid.CurrentRow ?? throw new InvalidOperationException("Выберите строку BOM в таблице.");
             var path = Generate(row);
-            if (path != null) OpenWord(path, true, 1);
+            if (path != null) OpenWord(path, true, generatedLabels);
         });
         grid.SelectionChanged += (_, _) => single.Enabled = source != null && grid.CurrentRow != null;
         top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single]);
@@ -55,15 +56,15 @@ public sealed class MainForm : Form
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Заполните «Упк, шт»." : "Проверьте данные перед генерацией.");
     });
     // Use a conservative fit check; Word remains the final pagination engine.
-    bool Fits(string text, int lines, bool bold = false)
+    bool Fits(string text, int lines, bool bold = false, float fontSize = 8)
     {
-        using var g = CreateGraphics(); using var font = new Font("Arial", 8, bold ? FontStyle.Bold : FontStyle.Regular); using var sf = (StringFormat)StringFormat.GenericTypographic.Clone();
+        using var g = CreateGraphics(); using var font = new Font("Arial", fontSize, bold ? FontStyle.Bold : FontStyle.Regular); using var sf = (StringFormat)StringFormat.GenericTypographic.Clone();
         sf.FormatFlags &= ~StringFormatFlags.NoWrap;
         var width = 39f / 25.4f * g.DpiX;
         var size = g.MeasureString(text, font, new SizeF(width, 10000), sf);
         return size.Width <= width + 0.5f && size.Height <= lines * font.GetHeight(g) + 0.5f;
     }
-    string Shorten(string value) { if (Fits(value, 3)) return value; var elements = System.Globalization.StringInfo.ParseCombiningCharacters(value); for (int i = elements.Length - 1; i >= 0; i--) { var s = value[..elements[i]].TrimEnd() + "…"; if (Fits(s, 3)) return s; } return "…"; }
+    string Shorten(string value, int lines = 3) { if (Fits(value, lines)) return value; var elements = System.Globalization.StringInfo.ParseCombiningCharacters(value); for (int i = elements.Length - 1; i >= 0; i--) { var s = value[..elements[i]].TrimEnd() + "…"; if (Fits(s, lines)) return s; } return "…"; }
     string? Generate(DataGridViewRow? singleRow = null)
     {
         grid.EndEdit(); Validate();
@@ -86,9 +87,22 @@ public sealed class MainForm : Form
                 if (prompt.ShowDialog(this) != DialogResult.OK) return null;
                 product.Text = prompt.Value; return Generate(singleRow);
             }
-            foreach (var (name, value) in new[] { ("Обозн.", des), ("Парт", part), ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
-            var shortSum = Shorten(sum); if (shortSum != sum) trimmed++;
-            labels.Add(new BomLabel(line, des, part, qty, shortSum, package.Checked ? pack : null));
+            foreach (var (name, value) in new[] { ("Парт", part), ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
+            var original = new BomLabel(line, des, part, qty, sum, package.Checked ? pack : null);
+            bool FitDesignation(string text, float font, int lines) => Fits(text, lines, false, font);
+            var fitted = Designators.Fit(original, FitDesignation);
+            List<BomLabel> parts;
+            if (fitted != null) parts = [fitted];
+            else
+            {
+                if (MessageBox.Show(this, $"Line # {line}: все обозначения не помещаются на одной этикетке даже шрифтом 7 пт. Разбить позицию на несколько этикеток? Все обозначения будут сохранены, Кол-во останется на одну плату.", "Длинное обозначение", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return null;
+                parts = Designators.Split(original, FitDesignation);
+            }
+            foreach (var partLabel in parts)
+            {
+                var shortSum = partLabel.SummaryLines == 0 ? "" : Shorten(sum, partLabel.SummaryLines); if (shortSum != sum) trimmed++;
+                labels.Add(partLabel with { Summary = shortSum });
+            }
         }
         string path;
         if (singleRow == null) path = Bom.Output(source);
@@ -103,13 +117,14 @@ public sealed class MainForm : Form
         try
         {
             Document.Save(candidate, title, labels);
-            WordLayout.Normalize(candidate, labels.Count);
+            WordLayout.Normalize(candidate, labels);
             File.Move(candidate, path, true);
         }
         finally { if (File.Exists(candidate)) File.Delete(candidate); }
+        generatedLabels = labels.Count;
         status.Text = singleRow == null
             ? $"Сохранено: {Path.GetFileName(path)}. Этикеток: {labels.Count}; сокращено Sum: {trimmed}."
-            : $"Подготовлена этикетка для Line # {labels[0].Line}. Сокращено Sum: {trimmed}.";
+            : $"Подготовлено этикеток: {labels.Count} для Line # {labels[0].Line}. Сокращено Sum: {trimmed}.";
         return path;
     }
     void OpenWord(string path, bool printing, int? labelCount = null)
@@ -121,7 +136,7 @@ public sealed class MainForm : Form
             word = Activator.CreateInstance(type)!; word.Visible = true;
             doc = word.Documents.Open(path, ReadOnly: true); doc.Repaginate();
             int pages = doc.ComputeStatistics(2);
-            int expectedLabels = labelCount ?? grid.Rows.Count;
+            int expectedLabels = labelCount ?? generatedLabels;
             if (pages != expectedLabels) MessageBox.Show(this, $"Word насчитал страниц: {pages}; этикеток: {expectedLabels}. Проверьте переносы и шрифты перед печатью.", "Проверка макета", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             doc.PrintPreview();
             if (printing && pages == expectedLabels && MessageBox.Show(this, "Проверьте макет в открытом Word. Открыть диалог печати?\n\nВыберите Xprinter XP-365B, бумагу 58×40 мм и масштаб 100% (без подгонки). Документ будет напечатан только после подтверждения в Word.", "Печать", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) { doc.ClosePrintPreview(); word.Dialogs[88].Show(); }

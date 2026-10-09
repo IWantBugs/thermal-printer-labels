@@ -2,7 +2,13 @@ using System.IO.Compression;
 using System.Xml.Linq;
 namespace LabelCore;
 public record Sheet(string Name, List<string[]> Rows);
-public record Label(string Line, string Designator, string Part, string Quantity, string Summary, string? Package);
+public record Label(string Line, string Designator, string Part, string Quantity, string Summary, string? Package)
+{
+    public float DesignatorFont { get; init; } = 8;
+    public int DesignatorLines { get; init; } = 1;
+    public int SummaryLines { get; init; } = 3;
+    public string? DesignatorPart { get; init; }
+}
 public static class Bom
 {
     static readonly XNamespace S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
