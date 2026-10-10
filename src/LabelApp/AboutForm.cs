@@ -11,7 +11,7 @@ internal sealed class AboutForm : Form
         StartPosition = FormStartPosition.CenterParent; FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; MinimizeBox = false;
         var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20), AutoScroll = true };
-        layout.Controls.Add(new Label { AutoSize = true, Text = "SPK Thermal Printer Labels\nВерсия 1.0.10\n\nИзготовитель: SPK\nЭтикетки 58×40 мм из BOM Excel." });
+        layout.Controls.Add(new Label { AutoSize = true, Text = "SPK Thermal Printer Labels\nВерсия 1.0.11\n\nИзготовитель: SPK\nЭтикетки 58×40 мм из BOM Excel." });
         var site = new LinkLabel { AutoSize = true, Text = "spkspb.ru", Margin = new Padding(3, 14, 3, 14) };
         site.LinkClicked += (_, _) =>
         {

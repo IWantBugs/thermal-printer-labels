@@ -9,7 +9,7 @@ internal static class Program
 }
 public sealed class MainForm : Form
 {
-    readonly DataGridView grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false, MultiSelect = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect };
+    readonly DataGridView grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false, MultiSelect = true, SelectionMode = DataGridViewSelectionMode.FullRowSelect };
     readonly TextBox product = new() { Width = 220 };
     readonly CheckBox package = new() { Text = "Добавить «Упк, шт»", AutoSize = true };
     readonly Label status = new() { AutoSize = true, Text = "Выберите BOM (.xlsx). Данные можно исправить перед сохранением." };
@@ -18,7 +18,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.10"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.11"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
         var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
@@ -32,9 +32,37 @@ public sealed class MainForm : Form
             if (path != null) OpenWord(path, true, generatedLabels);
         });
         grid.SelectionChanged += (_, _) => single.Enabled = source != null && grid.CurrentRow != null;
+        var addRows = new Button { Text = "Добавить строки…", AutoSize = true, Enabled = false };
+        addRows.Click += (_, _) => Run(AddRows);
+        var deleteRows = new Button { Text = "Удалить выбранные строки", AutoSize = true, Enabled = false };
+        deleteRows.Click += (_, _) => Run(() =>
+        {
+            grid.EndEdit();
+            var rows = grid.SelectedRows.Cast<DataGridViewRow>().ToArray();
+            foreach (var row in rows) grid.Rows.Remove(row);
+            status.Text = $"Удалено строк: {rows.Length}. Всего позиций: {grid.Rows.Count}.";
+        });
+        var sortLine = new Button { Text = "Сортировать по Line ↑", AutoSize = true, Enabled = false };
+        sortLine.Click += (_, _) => Run(() => { grid.EndEdit(); grid.Sort(grid.Columns["Line"], System.ComponentModel.ListSortDirection.Ascending); });
+        void UpdateRowActions()
+        {
+            addRows.Enabled = source != null;
+            deleteRows.Enabled = source != null && grid.SelectedRows.Count > 0;
+            sortLine.Enabled = source != null && grid.Rows.Count > 1;
+        }
+        grid.SelectionChanged += (_, _) => UpdateRowActions();
+        grid.RowsAdded += (_, _) => UpdateRowActions();
+        grid.RowsRemoved += (_, _) => UpdateRowActions();
+        grid.SortCompare += (_, e) =>
+        {
+            if (e.Column.Name != "Line") return;
+            e.SortResult = LineOrder.Compare(Convert.ToString(e.CellValue1), Convert.ToString(e.CellValue2));
+            if (e.SortResult == 0) e.SortResult = e.RowIndex1.CompareTo(e.RowIndex2);
+            e.Handled = true;
+        };
         var about = new Button() { Text = "О программе", AutoSize = true };
         about.Click += (_, _) => { using var info = new AboutForm(Icon); info.ShowDialog(this); };
-        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single, about]);
+        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single, addRows, deleteRows, sortLine, about]);
         var bottom = new FlowLayoutPanel() { Dock = DockStyle.Bottom, Height = 45, Padding = new Padding(8) }; bottom.Controls.Add(status);
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
         grid.Columns["Package"].Visible = false;
@@ -58,6 +86,22 @@ public sealed class MainForm : Form
         package.Checked = MessageBox.Show(this, "Добавить поле «Упк, шт»? При выборе «Да» введите количество для каждой позиции в таблице.", "Упаковка", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Заполните «Упк, шт»." : "Проверьте данные перед генерацией.");
     });
+    void AddRows()
+    {
+        if (source == null) throw new InvalidOperationException("Сначала выберите BOM.");
+        grid.EndEdit();
+        using var dialog = new RowCountPrompt();
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        var next = System.Numerics.BigInteger.Zero;
+        foreach (DataGridViewRow row in grid.Rows)
+            if (System.Numerics.BigInteger.TryParse(Convert.ToString(row.Cells["Line"].Value), out var number) && number > next) next = number;
+        int first = grid.Rows.Count;
+        for (int i = 0; i < dialog.Count; i++) grid.Rows.Add((++next).ToString(), "", "", "1", "", "");
+        grid.ClearSelection();
+        grid.CurrentCell = grid.Rows[first].Cells["Designator"];
+        grid.Rows[first].Selected = true;
+        status.Text = $"Добавлено строк: {dialog.Count}. Заполните Обозн., Парт" + (package.Checked ? " и Упк, шт." : ".") + " Line и количество можно изменить.";
+    }
     // Use a conservative fit check; Word remains the final pagination engine.
     bool Fits(string text, int lines, bool bold = false, float fontSize = 8)
     {
@@ -72,6 +116,7 @@ public sealed class MainForm : Form
     {
         grid.EndEdit(); Validate();
         if (source is null) throw new InvalidOperationException("Сначала выберите BOM.");
+        if (grid.Rows.Count == 0) throw new InvalidDataException("В таблице нет позиций. Добавьте строки или загрузите BOM.");
         var title = product.Text.Trim(); if (title.Length == 0) throw new InvalidDataException("Введите название изделия.");
         var labels = new List<BomLabel>(); int trimmed = 0;
         var selectedRows = singleRow == null ? grid.Rows.Cast<DataGridViewRow>().ToArray() : new[] { singleRow };
