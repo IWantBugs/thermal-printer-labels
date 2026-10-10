@@ -18,7 +18,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.13"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.14"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();

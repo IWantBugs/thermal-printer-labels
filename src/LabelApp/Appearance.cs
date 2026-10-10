@@ -31,9 +31,9 @@ internal static class Appearance
     public static void Table(DataGridView grid)
     {
         grid.BackgroundColor = Color.White; grid.BorderStyle = BorderStyle.None;
-        grid.GridColor = Border; grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        grid.GridColor = Color.FromArgb(177, 191, 201); grid.CellBorderStyle = DataGridViewCellBorderStyle.Single;
         grid.EnableHeadersVisualStyles = false;
-        grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+        grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
         grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
             BackColor = Ink, ForeColor = Color.White, SelectionBackColor = Ink,
