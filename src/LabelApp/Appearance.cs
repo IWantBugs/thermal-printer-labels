@@ -56,4 +56,20 @@ internal static class Appearance
         grid.Columns["Summary"].FillWeight = 160;
         grid.Columns["Package"].FillWeight = 65;
     }
+    public static void FitColumns(DataGridView grid)
+    {
+        // Recompute after each import, including any widths changed by dragging headers.
+        grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        float scale = grid.DeviceDpi / 96f;
+        foreach (DataGridViewColumn column in grid.Columns)
+        {
+            if (!column.Visible) continue;
+            column.AutoSizeMode = DataGridViewAutoSizeColumnMode.NotSet;
+            int limit = column.Name == "Line" ? 130 : column.Name is "Quantity" or "Package" ? 180 : 420;
+            int preferred = column.GetPreferredWidth(DataGridViewAutoSizeColumnMode.AllCells, true);
+            column.FillWeight = Math.Clamp(preferred, column.MinimumWidth, Math.Max(column.MinimumWidth, (int)(limit * scale))) / scale;
+        }
+        grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+    }
+
 }

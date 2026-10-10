@@ -18,7 +18,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.12"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.13"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -65,7 +65,7 @@ public sealed class MainForm : Form
         about.Click += (_, _) => { using var info = new AboutForm(Icon); info.ShowDialog(this); };
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
         grid.Columns["Package"].Visible = false;
-        package.CheckedChanged += (_, _) => { grid.Columns["Package"].Visible = package.Checked; if (package.Checked) status.Text = "Введите количество в упаковке для каждой позиции в столбце «Упк, шт»."; };
+        package.CheckedChanged += (_, _) => { grid.Columns["Package"].Visible = package.Checked; Appearance.FitColumns(grid); if (package.Checked) status.Text = "Введите количество в упаковке для каждой позиции в столбце «Упк, шт»."; };
         BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
     }
     void BuildWorkspace(Button load, Button save, Button preview, Button print, Button single,
@@ -75,14 +75,20 @@ public sealed class MainForm : Form
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(18) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int i = 0; i < 6; i++) root.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
-        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, BackColor = Appearance.Ink, Padding = new Padding(18, 14, 18, 14), Margin = new Padding(0, 0, 0, 14) };
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, BackColor = Appearance.Ink, Padding = new Padding(18, 14, 18, 14), Margin = new Padding(0, 0, 0, 14) };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var title = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         title.Controls.Add(new Label { Text = "SPK  /  Этикетки из BOM", AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI", 19, FontStyle.Bold) });
         title.Controls.Add(new Label { Text = "58 × 40 мм   ·   Word   ·   Xprinter XP-365B", AutoSize = true, ForeColor = Color.FromArgb(191, 207, 215), Margin = new Padding(3, 6, 3, 0) });
         Appearance.Button(about); about.Padding = new Padding(10, 6, 10, 6); about.Anchor = AnchorStyles.Right;
-        header.Controls.Add(title, 0, 0); header.Controls.Add(about, 1, 0); root.Controls.Add(header, 0, 0);
+        using var logoStream = typeof(MainForm).Assembly.GetManifestResourceStream("SPK.Logo")!;
+        using var logoIcon = new System.Drawing.Icon(logoStream, new Size(256, 256));
+        var logo = new PictureBox { Image = logoIcon.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom,
+            Width = 76, Height = 76, BackColor = Color.White, Margin = new Padding(0, 0, 14, 0), AccessibleName = "Логотип SPK" };
+        FormClosed += (_, _) => logo.Image?.Dispose();
+        header.Controls.Add(logo, 0, 0); header.Controls.Add(title, 1, 0); header.Controls.Add(about, 2, 0); root.Controls.Add(header, 0, 0);
         FlowLayoutPanel Toolbar(params Control[] controls)
         {
             var panel = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, BackColor = Color.White, Padding = new Padding(10), Margin = new Padding(0, 0, 0, 8) };
@@ -122,6 +128,7 @@ public sealed class MainForm : Form
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
         foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], "");
         package.Checked = MessageBox.Show(this, "Добавить поле «Упк, шт»? При выборе «Да» введите количество для каждой позиции в таблице.", "Упаковка", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+        Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Заполните «Упк, шт»." : "Проверьте данные перед генерацией.");
     });
     void AddRows()

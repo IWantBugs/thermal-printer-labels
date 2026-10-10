@@ -8,7 +8,6 @@ internal sealed class ColumnMapping : Form
     bool refreshing;
     readonly ComboBox header = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly ComboBox[] fields = Enumerable.Range(0, 5).Select(_ => new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, DropDownWidth = 1000 }).ToArray();
-    readonly string[] expected = ["Line #", "Designator", "PartNumber", "Quantity", "Name"];
     public int HeaderRow => header.SelectedIndex;
     public int[] Map => fields.Select((c, i) => c.SelectedIndex - (i == 4 ? 1 : 0)).ToArray();
 
@@ -62,14 +61,13 @@ internal sealed class ColumnMapping : Form
     {
         refreshing = true;
         var options = Bom.Columns(sheet, HeaderRow);
-        var names = sheet.Rows[HeaderRow];
+        var defaults = ColumnDefaults.Resolve(sheet.Rows[HeaderRow]);
         for (int i = 0; i < fields.Length; i++)
         {
             fields[i].Items.Clear();
             if (i == 4) fields[i].Items.Add("Не использовать — заполню вручную при необходимости");
             fields[i].Items.AddRange(options);
-            var matches = Enumerable.Range(0, names.Length).Where(c => names[c].Trim().Equals(expected[i], StringComparison.OrdinalIgnoreCase)).ToArray();
-            fields[i].SelectedIndex = matches.Length == 1 ? matches[0] + (i == 4 ? 1 : 0) : i == 4 ? 0 : -1;
+            fields[i].SelectedIndex = defaults[i] + (i == 4 ? 1 : 0);
         }
         refreshing = false;
     }
