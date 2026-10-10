@@ -18,8 +18,9 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.11"; Width = 1120; Height = 640; MinimumSize = new Size(850, 450);
-        var top = new FlowLayoutPanel() { Dock = DockStyle.Top, Height = 80, Padding = new Padding(8), AutoSize = true };
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.12"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
+        StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
         var save = new Button() { Text = "Сохранить DOCX", AutoSize = true }; save.Click += (_, _) => Run(() => Generate());
         var preview = new Button() { Text = "Предпросмотр в Word", AutoSize = true }; preview.Click += (_, _) => Run(() => { var p = Generate(); if (p != null) OpenWord(p, false); });
@@ -62,12 +63,49 @@ public sealed class MainForm : Form
         };
         var about = new Button() { Text = "О программе", AutoSize = true };
         about.Click += (_, _) => { using var info = new AboutForm(Icon); info.ShowDialog(this); };
-        top.Controls.AddRange([load, new Label() { Text = "Изделие:", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, product, package, save, preview, print, single, addRows, deleteRows, sortLine, about]);
-        var bottom = new FlowLayoutPanel() { Dock = DockStyle.Bottom, Height = 45, Padding = new Padding(8) }; bottom.Controls.Add(status);
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
         grid.Columns["Package"].Visible = false;
         package.CheckedChanged += (_, _) => { grid.Columns["Package"].Visible = package.Checked; if (package.Checked) status.Text = "Введите количество в упаковке для каждой позиции в столбце «Упк, шт»."; };
-        Controls.Add(grid); Controls.Add(top); Controls.Add(bottom);
+        BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
+    }
+    void BuildWorkspace(Button load, Button save, Button preview, Button print, Button single,
+        Button addRows, Button deleteRows, Button sortLine, Button about)
+    {
+        SuspendLayout();
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(18) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int i = 0; i < 6; i++) root.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, BackColor = Appearance.Ink, Padding = new Padding(18, 14, 18, 14), Margin = new Padding(0, 0, 0, 14) };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var title = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        title.Controls.Add(new Label { Text = "SPK  /  Этикетки из BOM", AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI", 19, FontStyle.Bold) });
+        title.Controls.Add(new Label { Text = "58 × 40 мм   ·   Word   ·   Xprinter XP-365B", AutoSize = true, ForeColor = Color.FromArgb(191, 207, 215), Margin = new Padding(3, 6, 3, 0) });
+        Appearance.Button(about); about.Padding = new Padding(10, 6, 10, 6); about.Anchor = AnchorStyles.Right;
+        header.Controls.Add(title, 0, 0); header.Controls.Add(about, 1, 0); root.Controls.Add(header, 0, 0);
+        FlowLayoutPanel Toolbar(params Control[] controls)
+        {
+            var panel = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, BackColor = Color.White, Padding = new Padding(10), Margin = new Padding(0, 0, 0, 8) };
+            foreach (var control in controls)
+            {
+                control.Margin = new Padding(4, 4, 8, 4);
+                if (control is Button button) { Appearance.Button(button, button == load || button == print, button == deleteRows); button.Padding = new Padding(10, 6, 10, 6); }
+                panel.Controls.Add(control);
+            }
+            return panel;
+        }
+        product.Width = 270;
+        package.Padding = new Padding(4, 6, 4, 0);
+        root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package), 0, 1);
+        root.Controls.Add(Toolbar(save, preview, print, single), 0, 2);
+        root.Controls.Add(Toolbar(addRows, deleteRows, sortLine), 0, 3);
+        Appearance.Table(grid);
+        var table = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Appearance.Border, Margin = new Padding(0) };
+        table.Controls.Add(grid); root.Controls.Add(table, 0, 4);
+        status.AutoSize = true; status.Dock = DockStyle.Fill;
+        status.Padding = new Padding(4, 12, 4, 4); status.Margin = new Padding(0); status.ForeColor = Color.FromArgb(79, 99, 111);
+        root.Controls.Add(status, 0, 5);
+        Controls.Add(root); ResumeLayout(true);
     }
     void Run(Action action) { try { action(); } catch (Exception e) { MessageBox.Show(this, e.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
     void LoadBom() => Run(() =>
@@ -196,10 +234,10 @@ public sealed class Picker : Form
 {
     readonly ComboBox choices = new() { Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList };
     public int Index => choices.SelectedIndex;
-    public Picker(string title, string[] items) { Text = title; Width = 720; Height = 150; StartPosition = FormStartPosition.CenterParent; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; choices.Items.AddRange(items); choices.SelectedIndex = 0; var ok = new Button() { Text = "Выбрать", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK }; var cancel = new Button() { Text = "Отмена", Dock = DockStyle.Bottom, DialogResult = DialogResult.Cancel }; Controls.Add(choices); Controls.Add(ok); Controls.Add(cancel); AcceptButton = ok; CancelButton = cancel; }
+    public Picker(string title, string[] items) { Text = title; Width = 720; Height = 150; StartPosition = FormStartPosition.CenterParent; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; choices.Items.AddRange(items); choices.SelectedIndex = 0; var ok = new Button() { Text = "Выбрать", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK }; var cancel = new Button() { Text = "Отмена", Dock = DockStyle.Bottom, DialogResult = DialogResult.Cancel }; Controls.Add(choices); Controls.Add(ok); Controls.Add(cancel); AcceptButton = ok; CancelButton = cancel; Appearance.Dialog(this); }
 }
 public sealed class TextPrompt : Form
 {
     readonly TextBox input = new() { Dock = DockStyle.Top }; public string Value => input.Text.Trim();
-    public TextPrompt(string message, string value, int maxLength) { Text = "Сократите название изделия"; Width = 700; Height = 170; StartPosition = FormStartPosition.CenterParent; var label = new Label() { Text = message, Dock = DockStyle.Top, Height = 40 }; input.MaxLength = maxLength; input.Text = value[..Math.Min(value.Length, maxLength)]; var ok = new Button() { Text = "Применить", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK }; var cancel = new Button() { Text = "Отмена", Dock = DockStyle.Bottom, DialogResult = DialogResult.Cancel }; Controls.Add(input); Controls.Add(label); Controls.Add(ok); Controls.Add(cancel); AcceptButton = ok; CancelButton = cancel; }
+    public TextPrompt(string message, string value, int maxLength) { Text = "Сократите название изделия"; Width = 700; Height = 170; StartPosition = FormStartPosition.CenterParent; var label = new Label() { Text = message, Dock = DockStyle.Top, Height = 40 }; input.MaxLength = maxLength; input.Text = value[..Math.Min(value.Length, maxLength)]; var ok = new Button() { Text = "Применить", Dock = DockStyle.Bottom, DialogResult = DialogResult.OK }; var cancel = new Button() { Text = "Отмена", Dock = DockStyle.Bottom, DialogResult = DialogResult.Cancel }; Controls.Add(input); Controls.Add(label); Controls.Add(ok); Controls.Add(cancel); AcceptButton = ok; CancelButton = cancel; Appearance.Dialog(this); }
 }

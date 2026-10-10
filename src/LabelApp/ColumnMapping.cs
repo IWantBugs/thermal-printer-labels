@@ -55,6 +55,7 @@ internal sealed class ColumnMapping : Form
         };
         header.SelectedIndexChanged += (_, _) => RefreshColumns();
         header.SelectedIndex = headerRow;
+        Appearance.Dialog(this);
     }
 
     void RefreshColumns()

@@ -17,5 +17,6 @@ internal sealed class RowCountPrompt : Form
         var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, AutoSize = true };
         layout.Controls.AddRange([ok, cancel]); Controls.Add(layout);
         AcceptButton = ok; CancelButton = cancel;
+        Appearance.Dialog(this);
     }
 }
