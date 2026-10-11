@@ -18,7 +18,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.14"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.15"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -126,10 +126,10 @@ public sealed class MainForm : Form
         var records = Bom.ProjectRows(sheet, mapping.HeaderRow, mapping.Map);
         if (records.Count == 0) throw new InvalidDataException("После заголовков нет позиций BOM.");
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
-        foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], "");
-        package.Checked = MessageBox.Show(this, "Добавить поле «Упк, шт»? При выборе «Да» введите количество для каждой позиции в таблице.", "Упаковка", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+        foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], r[5]);
+        package.Checked = mapping.Map[5] >= 0;
         Appearance.FitColumns(grid);
-        status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Заполните «Упк, шт»." : "Проверьте данные перед генерацией.");
+        status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
     });
     void AddRows()
     {

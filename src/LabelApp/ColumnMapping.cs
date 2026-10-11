@@ -7,29 +7,29 @@ internal sealed class ColumnMapping : Form
     readonly Sheet sheet;
     bool refreshing;
     readonly ComboBox header = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-    readonly ComboBox[] fields = Enumerable.Range(0, 5).Select(_ => new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, DropDownWidth = 1000 }).ToArray();
+    readonly ComboBox[] fields = Enumerable.Range(0, 6).Select(_ => new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, DropDownWidth = 1000 }).ToArray();
     public int HeaderRow => header.SelectedIndex;
-    public int[] Map => fields.Select((c, i) => c.SelectedIndex - (i == 4 ? 1 : 0)).ToArray();
+    public int[] Map => fields.Select((c, i) => c.SelectedIndex - (i >= 4 ? 1 : 0)).ToArray();
 
     public ColumnMapping(Sheet sheet, int headerRow)
     {
         this.sheet = sheet;
-        Text = "Сопоставление столбцов BOM"; Width = 900; Height = 410;
+        Text = "Сопоставление столбцов BOM"; Width = 900; Height = 460;
         StartPosition = FormStartPosition.CenterParent; FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; MinimizeBox = false;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 7 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 8 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "Строка заголовков", AutoSize = true }, 0, 0);
         layout.Controls.Add(header, 1, 0);
-        var labels = new[] { "Номер (Line #)", "Обозн. (Designator)", "Парт (PartNumber)", "Кол-во (Quantity)", "Sum (необязательно)" };
+        var labels = new[] { "Номер (Line #)", "Обозн. (Designator)", "Парт (PartNumber)", "Кол-во (Quantity)", "Sum (необязательно)", "Упк, шт (необязательно)" };
         for (int i = 0; i < fields.Length; i++)
         {
             layout.Controls.Add(new Label { Text = labels[i], AutoSize = true }, 0, i + 1);
             layout.Controls.Add(fields[i], 1, i + 1);
         }
         var hint = new Label { Text = "Все столбцы доступны для каждого поля. Один столбец можно выбрать несколько раз.", AutoSize = true };
-        layout.Controls.Add(hint, 0, 6); layout.SetColumnSpan(hint, 2);
+        layout.Controls.Add(hint, 0, 7); layout.SetColumnSpan(hint, 2);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
         var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, AutoSize = true };
         var accept = new Button { Text = "Загрузить", AutoSize = true };
@@ -66,8 +66,9 @@ internal sealed class ColumnMapping : Form
         {
             fields[i].Items.Clear();
             if (i == 4) fields[i].Items.Add("Не использовать — заполню вручную при необходимости");
+            if (i == 5) fields[i].Items.Add("Не использовать — без поля Упк, шт");
             fields[i].Items.AddRange(options);
-            fields[i].SelectedIndex = defaults[i] + (i == 4 ? 1 : 0);
+            fields[i].SelectedIndex = i == 5 ? 0 : defaults[i] + (i >= 4 ? 1 : 0);
         }
         refreshing = false;
     }
