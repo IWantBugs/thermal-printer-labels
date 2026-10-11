@@ -18,7 +18,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.15"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.16"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -38,8 +38,8 @@ public sealed class MainForm : Form
         var deleteRows = new Button { Text = "Удалить выбранные строки", AutoSize = true, Enabled = false };
         deleteRows.Click += (_, _) => Run(() =>
         {
-            grid.EndEdit();
             var rows = grid.SelectedRows.Cast<DataGridViewRow>().ToArray();
+            grid.CancelEdit();
             foreach (var row in rows) grid.Rows.Remove(row);
             status.Text = $"Удалено строк: {rows.Length}. Всего позиций: {grid.Rows.Count}.";
         });
@@ -104,7 +104,29 @@ public sealed class MainForm : Form
         package.Padding = new Padding(4, 6, 4, 0);
         root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package), 0, 1);
         root.Controls.Add(Toolbar(save, preview, print, single), 0, 2);
-        root.Controls.Add(Toolbar(addRows, deleteRows, sortLine), 0, 3);
+        var excel = new Button { Text = "Сохранить BOM в Excel…", AutoSize = true };
+        excel.Click += (_, _) => Run(ExportBom);
+        Button ColorButton(string text, Color color)
+        {
+            var button = new Button { Text = text, AutoSize = true };
+            button.Click += (_, _) =>
+            {
+                foreach (DataGridViewRow row in grid.SelectedRows)
+                {
+                    row.DefaultCellStyle.BackColor = color;
+                    row.DefaultCellStyle.SelectionBackColor = color.IsEmpty ? grid.DefaultCellStyle.SelectionBackColor : ControlPaint.Dark(color, 0.05f);
+                }
+            };
+            return button;
+        }
+        var rowActions = Toolbar(addRows, deleteRows, sortLine, excel,
+            ColorButton("Зелёный", Color.FromArgb(198,239,206)), ColorButton("Жёлтый", Color.FromArgb(255,235,156)),
+            ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Без заливки", Color.Empty));
+        foreach (Button button in rowActions.Controls)
+            if (button.Text == "Зелёный") button.BackColor = Color.FromArgb(198,239,206);
+            else if (button.Text == "Жёлтый") button.BackColor = Color.FromArgb(255,235,156);
+            else if (button.Text == "Красный") button.BackColor = Color.FromArgb(255,199,206);
+        root.Controls.Add(rowActions, 0, 3);
         Appearance.Table(grid);
         var table = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Appearance.Border, Margin = new Padding(0) };
         table.Controls.Add(grid); root.Controls.Add(table, 0, 4);
@@ -131,6 +153,26 @@ public sealed class MainForm : Form
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
     });
+    void ExportBom()
+    {
+        grid.EndEdit();
+        if (source == null) throw new InvalidOperationException("Сначала загрузите BOM.");
+        using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
+            FileName = Path.GetFileNameWithoutExtension(source) + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Выберите другое имя файла, чтобы сохранить исходный BOM.");
+        var rows = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && r.DataGridView == grid).Select(row =>
+        {
+            var color = row.DefaultCellStyle.BackColor;
+            string? fill = color.IsEmpty ? null : "FF" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
+            return new BomExportRow(grid.Columns.Cast<DataGridViewColumn>().Select(c => Convert.ToString(row.Cells[c.Index].Value) ?? "").ToArray(), fill);
+        }).ToArray();
+        var temp = Path.Combine(Path.GetDirectoryName(dialog.FileName)!, Guid.NewGuid() + ".xlsx");
+        try { BomExport.Save(temp, rows); File.Move(temp, dialog.FileName, true); }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
+        status.Text = "Редакция BOM сохранена: " + dialog.FileName;
+    }
     void AddRows()
     {
         if (source == null) throw new InvalidOperationException("Сначала выберите BOM.");
@@ -164,14 +206,14 @@ public sealed class MainForm : Form
         if (grid.Rows.Count == 0) throw new InvalidDataException("В таблице нет позиций. Добавьте строки или загрузите BOM.");
         var title = product.Text.Trim(); if (title.Length == 0) throw new InvalidDataException("Введите название изделия.");
         var labels = new List<BomLabel>(); int trimmed = 0;
-        var selectedRows = singleRow == null ? grid.Rows.Cast<DataGridViewRow>().ToArray() : new[] { singleRow };
+        var selectedRows = singleRow == null ? grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && r.DataGridView == grid).ToArray() : new[] { singleRow };
         foreach (var row in selectedRows)
         {
             string V(string key) => Convert.ToString(row.Cells[key].Value)?.Trim() ?? "";
             string line = V("Line"), des = V("Designator"), part = V("Part"), qty = V("Quantity"), sum = V("Summary"), pack = V("Package");
             if (new[] { line, des, part, qty }.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException($"Позиция {row.Index + 1}: заполните Line #, Обозн., Парт и Кол-во.");
             if (!decimal.TryParse(qty.Replace(',', '.'), System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var q) || q <= 0) throw new InvalidDataException($"Позиция {row.Index + 1}: «Кол-во» должно быть положительным числом.");
-            if (package.Checked && (!int.TryParse(pack, out var n) || n <= 0)) throw new InvalidDataException($"Позиция {row.Index + 1}: введите целое положительное «Упк, шт».");
+            if (package.Checked && pack.Length > 0 && (!int.TryParse(pack, out var n) || n <= 0)) throw new InvalidDataException($"Line # {line}: «Упк, шт» должно быть целым положительным числом или пустым.");
             if (!Fits(Document.Heading(title, line), 2, true))
             {
                 int limit = title.Length; while (limit > 0 && !Fits(Document.Heading(title[..limit], line), 2, true)) limit--;
@@ -181,7 +223,7 @@ public sealed class MainForm : Form
                 product.Text = prompt.Value; return Generate(singleRow);
             }
             foreach (var (name, value) in new[] { ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
-            var original = new BomLabel(line, des, part, qty, sum, package.Checked ? pack : null);
+            var original = new BomLabel(line, des, part, qty, sum, package.Checked && pack.Length > 0 ? pack : null);
             bool FitDesignation(string text, float font, int lines) => Fits(text, lines, false, font);
             var fitted = Designators.Fit(original, FitDesignation);
             List<BomLabel> parts;
