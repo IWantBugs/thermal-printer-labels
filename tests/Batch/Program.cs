@@ -24,3 +24,15 @@ old.Groups.RemoveAll(g=>ReserveRules.Prefixes(g.Prefixes).Contains("Q"));
 old.Upgrade();
 if(old.PercentFor("Q1")!=3) throw new Exception("Repeated upgrade changed user edits");
 Console.WriteLine("PASS: Q transistor and one-time settings upgrade");
+
+var sessionFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid()+".xlsx");
+try {
+ BomExport.Save(sessionFile, new[]{new BomExportRow(new[]{"9","Q1","P","2","",""},"FFFFC7CE")});
+ var original = new BomSession { Product="Board",Boards=100,Reserve=true,Package=false,Widths=new(){{"Part",135}} };
+ original.Rules.Groups.Add(new("L",7));
+ BomSession.Write(sessionFile, original);
+ var restored = BomSession.Read(sessionFile) ?? throw new Exception("Session missing");
+ if(restored.Product!="Board" || restored.Boards!=100 || !restored.Reserve || restored.Package || restored.Rules.PercentFor("L1")!=7 || restored.Widths["Part"]!=135) throw new Exception("Session state mismatch");
+ if(BomSession.Colors(sessionFile)[0]!="FFFFC7CE" || Bom.Read(sessionFile)[0].Rows[1][0]!="9") throw new Exception("Session data or colors mismatch");
+} finally { File.Delete(sessionFile); }
+Console.WriteLine("PASS: edited BOM session, row color, product, boards, flags, groups and column widths");

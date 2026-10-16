@@ -18,6 +18,7 @@ public sealed class MainForm : Form
     int boards;
     ReserveRules reserveRules = new();
     static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve-groups.json");
+    bool editingSavedBom;
     string? source;
     int generatedLabels;
     public MainForm()
@@ -37,7 +38,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.19"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.20"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -182,6 +183,11 @@ public sealed class MainForm : Form
     {
         using var dialog = new OpenFileDialog() { Filter = "Excel BOM (*.xlsx)|*.xlsx", Title = "Выберите BOM" }; if (dialog.ShowDialog(this) != DialogResult.OK) return;
         var sheets = Bom.Read(dialog.FileName); if (sheets.Count == 0) throw new InvalidDataException("В книге нет непустых листов.");
+        var session = BomSession.Read(dialog.FileName);
+        if (session != null || (Path.GetFileNameWithoutExtension(dialog.FileName).Contains("_EDIT", StringComparison.OrdinalIgnoreCase) && sheets[0].Rows[0].Contains("PartNumber") && sheets[0].Rows[0].Contains("Summary")))
+        {
+            RestoreBom(dialog.FileName, sheets[0], session); return;
+        }
         int si = 0; if (sheets.Count > 1) { using var pick = new Picker("Выберите лист BOM", sheets.Select(s => s.Name).ToArray()); if (pick.ShowDialog(this) != DialogResult.OK) return; si = pick.Index; }
         var sheet = sheets[si];
         int hi = sheet.Rows.FindIndex(r => r.Any(c => c.Equals("Designator", StringComparison.OrdinalIgnoreCase)) && r.Any(c => c.Equals("Quantity", StringComparison.OrdinalIgnoreCase)));
@@ -189,6 +195,7 @@ public sealed class MainForm : Form
         if (mapping.ShowDialog(this) != DialogResult.OK) return;
         var records = Bom.ProjectRows(sheet, mapping.HeaderRow, mapping.Map);
         if (records.Count == 0) throw new InvalidDataException("После заголовков нет позиций BOM.");
+        editingSavedBom = false;
         boards = 0; reserve.Checked = false; reserve.Enabled = false; batch.Enabled = true;
         batch.Text = "Ввести общее кол-во"; grid.Columns["Total"].Visible = false;
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
@@ -197,6 +204,37 @@ public sealed class MainForm : Form
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
     });
+    void RestoreBom(string path, Sheet sheet, BomSession? state)
+    {
+        bool legacy = state == null;
+        editingSavedBom = true;
+        var headers = sheet.Rows[0]; state ??= BomSession.Legacy(path, headers);
+        string[] names = ["Line #", "Designator", "PartNumber", "Quantity", "Summary", "Упк, шт"];
+        var map = names.Select(n => Array.IndexOf(headers, n)).ToArray();
+        if (map.Take(4).Any(i => i < 0)) throw new InvalidDataException("В редакции BOM отсутствуют обязательные столбцы.");
+        var colors = BomSession.Colors(path);
+        var records = Bom.ProjectRows(sheet, 0, map);
+        boards = 0; grid.Rows.Clear(); source = path; product.Text = state.Product;
+        reserveRules = state.Rules;
+        for (int i = 0; i < records.Count; i++)
+        {
+            int index = grid.Rows.Add(records[i].Cast<object>().ToArray());
+            if (i < colors.Length && colors[i] is string color && color.Length == 8 && uint.TryParse(color, System.Globalization.NumberStyles.HexNumber, null, out uint argb))
+            {
+                var fill = Color.FromArgb(unchecked((int)argb));
+                grid.Rows[index].DefaultCellStyle.BackColor = fill;
+                grid.Rows[index].DefaultCellStyle.SelectionBackColor = ControlPaint.Dark(fill, 0.05f);
+            }
+        }
+        package.Checked = legacy ? records.Any(r => r[5].Length > 0) : state.Package;
+        boards = state.Boards; reserve.Checked = state.Reserve; reserve.Enabled = boards > 0; batch.Enabled = true;
+        grid.Columns["Total"].Visible = boards > 0;
+        batch.Text = boards > 0 ? $"Плат: {boards} · изменить" : "Ввести общее кол-во";
+        RecalculateTotals(); Appearance.FitColumns(grid);
+        foreach (var entry in state.Widths)
+            if (grid.Columns.Contains(entry.Key) && float.IsFinite(entry.Value) && entry.Value > 0 && entry.Value <= 65535) grid.Columns[entry.Key].FillWeight = entry.Value;
+        status.Text = $"Открыта редакция BOM: {records.Count} позиций. Заливки восстановлены.";
+    }
     void RecalculateTotals()
     {
         if (boards <= 0) return;
@@ -216,9 +254,9 @@ public sealed class MainForm : Form
         grid.EndEdit();
         if (source == null) throw new InvalidOperationException("Сначала загрузите BOM.");
         using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
-            FileName = Path.GetFileNameWithoutExtension(source) + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
+            FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase))
+        if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase) && !editingSavedBom)
             throw new InvalidOperationException("Выберите другое имя файла, чтобы сохранить исходный BOM.");
         RecalculateTotals();
         var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != "Total" || boards > 0).OrderBy(c => c.DisplayIndex).ToArray();
@@ -230,7 +268,13 @@ public sealed class MainForm : Form
             return new BomExportRow(columns.Select(c => Convert.ToString(row.Cells[c.Index].Value) ?? "").ToArray(), fill);
         }).ToArray();
         var temp = Path.Combine(Path.GetDirectoryName(dialog.FileName)!, Guid.NewGuid() + ".xlsx");
-        try { BomExport.Save(temp, rows, headers); File.Move(temp, dialog.FileName, true); }
+        try
+        {
+            BomExport.Save(temp, rows, headers);
+            BomSession.Write(temp, new BomSession { Product = product.Text, Boards = boards, Reserve = reserve.Checked, Package = package.Checked,
+                Rules = reserveRules, Widths = grid.Columns.Cast<DataGridViewColumn>().ToDictionary(c => c.Name, c => c.FillWeight) });
+            File.Move(temp, dialog.FileName, true);
+        }
         finally { if (File.Exists(temp)) File.Delete(temp); }
         status.Text = "Редакция BOM сохранена: " + dialog.FileName;
     }
