@@ -3,7 +3,20 @@ namespace LabelCore;
 public record ReserveGroup(string Prefixes, decimal Percent);
 public sealed class ReserveRules
 {
-    public List<ReserveGroup> Groups { get; set; } = [new("R, C, VD, VT", 10), new("U, DA, DD", 5)];
+    public List<ReserveGroup> Groups { get; set; } = [new("R, C, VD, VT, Q", 10), new("U, DA, DD", 5)];
+    public int SchemaVersion { get; set; }
+    public bool Upgrade()
+    {
+        if (SchemaVersion >= 1) return false;
+        if (!Groups.Any(g => Prefixes(g.Prefixes).Contains("Q")))
+        {
+            int index = Groups.FindIndex(g => Prefixes(g.Prefixes).Contains("VT"));
+            if (index >= 0) Groups[index] = Groups[index] with { Prefixes = Groups[index].Prefixes + ", Q" };
+            else Groups.Add(new ReserveGroup("Q", 10));
+        }
+        SchemaVersion = 1;
+        return true;
+    }
     public decimal OtherPercent { get; set; } = 3;
     public static string[] Prefixes(string value) => Regex.Split(value.Trim().ToUpperInvariant(), @"[\s,;]+").Where(x => x.Length > 0).ToArray();
     public void Validate()

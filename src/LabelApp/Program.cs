@@ -27,12 +27,17 @@ public sealed class MainForm : Form
             if (File.Exists(SettingsPath))
             {
                 var saved = System.Text.Json.JsonSerializer.Deserialize<ReserveRules>(File.ReadAllText(SettingsPath));
-                saved?.Validate(); if (saved != null) reserveRules = saved;
+                saved?.Validate();
+                if (saved != null)
+                {
+                    reserveRules = saved;
+                    if (saved.Upgrade()) File.WriteAllText(SettingsPath, System.Text.Json.JsonSerializer.Serialize(saved));
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.18"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.19"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();

@@ -10,8 +10,17 @@ Console.WriteLine("PASS: batch calculation, reserve, rounding, invalid values, o
 
 var rules = new ReserveRules();
 rules.Validate();
-foreach(var (designation, expected) in new (string, decimal)[] { ("R1,R2",10), ("C1-C5",10), ("VD1",10), ("VT2",10), ("U1",5), ("DA1",5), ("DD2",5), ("XS1",3), ("XP1",3), ("L1",3), ("r10",10), ("UR1",3) })
+foreach(var (designation, expected) in new (string, decimal)[] { ("R1,R2",10), ("C1-C5",10), ("VD1",10), ("VT2",10), ("Q1",10), ("q5",10), ("U1",5), ("DA1",5), ("DD2",5), ("XS1",3), ("XP1",3), ("L1",3), ("r10",10), ("UR1",3) })
  if(rules.PercentFor(designation)!=expected) throw new Exception("Reserve group failed: " + designation);
 rules.Groups.Add(new("L",7)); rules.Validate();
 if(rules.PercentFor("L1")!=7) throw new Exception("Custom group failed");
 Console.WriteLine("PASS: default groups, exact prefixes, lowercase, ranges and custom group");
+
+var old = new ReserveRules { Groups = [new("R, C, VD, VT",10), new("U",5)] };
+old.Upgrade(); old.Validate();
+if(old.PercentFor("Q1")!=10) throw new Exception("Q upgrade failed");
+old.Groups.Add(new("L",7));
+old.Groups.RemoveAll(g=>ReserveRules.Prefixes(g.Prefixes).Contains("Q"));
+old.Upgrade();
+if(old.PercentFor("Q1")!=3) throw new Exception("Repeated upgrade changed user edits");
+Console.WriteLine("PASS: Q transistor and one-time settings upgrade");

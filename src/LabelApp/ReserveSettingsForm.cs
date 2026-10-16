@@ -27,7 +27,7 @@ internal sealed class ReserveSettingsForm : Form
         {
             try
             {
-                groups.EndEdit(); var result = new ReserveRules { Groups = [], OtherPercent = other.Value };
+                groups.EndEdit(); var result = new ReserveRules { Groups = [], OtherPercent = other.Value, SchemaVersion = 1 };
                 foreach (DataGridViewRow row in groups.Rows)
                 {
                     if (row.IsNewRow) continue;
