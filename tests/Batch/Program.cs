@@ -36,3 +36,23 @@ try {
  if(BomSession.Colors(sessionFile)[0]!="FFFFC7CE" || Bom.Read(sessionFile)[0].Rows[1][0]!="9") throw new Exception("Session data or colors mismatch");
 } finally { File.Delete(sessionFile); }
 Console.WriteLine("PASS: edited BOM session, row color, product, boards, flags, groups and column widths");
+
+if(!PackagePieces.Parse("150\n150").SequenceEqual(new[]{150,150}) || PackagePieces.Parse("100+150+50").Sum()!=300 || PackagePieces.Parse("").Length!=0) throw new Exception("Package pieces failed");
+try {PackagePieces.Parse("0");throw new Exception("Invalid piece accepted");} catch(ArgumentException){}
+Console.WriteLine("PASS: package pieces, totals, removal and validation");
+
+var splitFile = Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".xlsx");
+try {
+ BomExport.Save(splitFile,new[]{new BomExportRow(new[]{"1","R1","P","3","","300","150","150"},"FFC6EFCE")},new[]{"Line #","Designator","PartNumber","Quantity","Summary","Упк, шт","Упк 1","Упк 2"});
+ var saved = Bom.Read(splitFile)[0].Rows;
+ if(saved[1][5]!="300" || saved[1][6]!="150" || saved[1][7]!="150") throw new Exception("Split export failed");
+} finally {File.Delete(splitFile);}
+var labelFile=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".docx");
+try {
+ Document.Save(labelFile,"Test",new[]{new LabelCore.Label("1","R1","P","3","","150"),new LabelCore.Label("1","R1","P","3","","150")});
+ using var z=System.IO.Compression.ZipFile.OpenRead(labelFile);
+ using var stream=z.GetEntry("word/document.xml")!.Open();
+ var xml=System.Xml.Linq.XDocument.Load(stream);System.Xml.Linq.XNamespace w="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+ if(xml.Descendants(w+"tbl").Count()!=2 || xml.Descendants(w+"t").Count(t=>t.Value=="150")!=2) throw new Exception("Piece labels failed");
+} finally {File.Delete(labelFile);}
+Console.WriteLine("PASS: Excel split columns and two separate 150-piece labels");

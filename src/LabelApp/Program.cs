@@ -38,7 +38,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.20"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.21"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -100,6 +100,18 @@ public sealed class MainForm : Form
             batch.Text = $"Плат: {boards} · изменить"; RecalculateTotals(); Appearance.FitColumns(grid);
         });
         package.CheckedChanged += (_, _) => { grid.Columns["Package"].Visible = package.Checked; Appearance.FitColumns(grid); if (package.Checked) status.Text = "Введите количество в упаковке для каждой позиции в столбце «Упк, шт»."; };
+        grid.Columns.Add(new DataGridViewButtonColumn { Name = "SplitPackages", HeaderText = "Упаковки", Text = "Разбить…", UseColumnTextForButtonValue = true, FillWeight = 80 });
+        grid.CellContentClick += (_, e) =>
+        {
+            if(e.RowIndex < 0 || e.ColumnIndex != grid.Columns["SplitPackages"].Index) return;
+            Run(() =>
+            {
+                grid.EndEdit(); var row = grid.Rows[e.RowIndex];
+                using var prompt = new PackagePiecesForm(row.Tag as int[] ?? []);
+                if(prompt.ShowDialog(this) != DialogResult.OK) return;
+                SetPieces(row,prompt.Pieces); package.Checked = true; Appearance.FitColumns(grid);
+            });
+        };
         BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
     }
     void BuildWorkspace(Button load, Button save, Button preview, Button print, Button single,
@@ -199,11 +211,28 @@ public sealed class MainForm : Form
         boards = 0; reserve.Checked = false; reserve.Enabled = false; batch.Enabled = true;
         batch.Text = "Ввести общее кол-во"; grid.Columns["Total"].Visible = false;
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
+        foreach(DataGridViewColumn c in grid.Columns) if(c.Name.StartsWith("Piece")) c.Visible=false;
         foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], r[5]);
         package.Checked = mapping.Map[5] >= 0;
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
     });
+    void SetPieces(DataGridViewRow row, int[] pieces)
+    {
+        row.Tag = pieces;
+        row.Cells["Package"].ReadOnly = pieces.Length > 0;
+        if(pieces.Length > 0) row.Cells["Package"].Value = pieces.Sum();
+        for(int i = 0; i < pieces.Length; i++)
+        {
+            string key = "Piece" + (i+1);
+            if(!grid.Columns.Contains(key)) grid.Columns.Add(new DataGridViewTextBoxColumn { Name=key, HeaderText="Упк " + (i+1), ReadOnly=true, FillWeight=70 });
+        }
+        foreach(DataGridViewColumn column in grid.Columns)
+            if(column.Name.StartsWith("Piece") && int.TryParse(column.Name[5..],out int number))
+                row.Cells[column.Index].Value = number <= pieces.Length ? pieces[number-1] : null;
+        foreach(DataGridViewColumn column in grid.Columns)
+            if(column.Name.StartsWith("Piece")) column.Visible = grid.Rows.Cast<DataGridViewRow>().Any(r=>r.Cells[column.Index].Value!=null);
+    }
     void RestoreBom(string path, Sheet sheet, BomSession? state)
     {
         bool legacy = state == null;
@@ -214,11 +243,15 @@ public sealed class MainForm : Form
         if (map.Take(4).Any(i => i < 0)) throw new InvalidDataException("В редакции BOM отсутствуют обязательные столбцы.");
         var colors = BomSession.Colors(path);
         var records = Bom.ProjectRows(sheet, 0, map);
-        boards = 0; grid.Rows.Clear(); source = path; product.Text = state.Product;
+        boards = 0; grid.Rows.Clear();
+        foreach(DataGridViewColumn c in grid.Columns) if(c.Name.StartsWith("Piece")) c.Visible=false;
+        source = path; product.Text = state.Product;
         reserveRules = state.Rules;
         for (int i = 0; i < records.Count; i++)
         {
             int index = grid.Rows.Add(records[i].Cast<object>().ToArray());
+            var pieces = sheet.Rows[i+1].Select((value, c)=>(value,c)).Where(x => x.c < headers.Length && System.Text.RegularExpressions.Regex.IsMatch(headers[x.c], @"^Упк \d+$") && x.value.Length>0).Select(x=>x.value).ToArray();
+            if(pieces.Length>0) SetPieces(grid.Rows[index],PackagePieces.Parse(string.Join(";",pieces)));
             if (i < colors.Length && colors[i] is string color && color.Length == 8 && uint.TryParse(color, System.Globalization.NumberStyles.HexNumber, null, out uint argb))
             {
                 var fill = Color.FromArgb(unchecked((int)argb));
@@ -259,7 +292,7 @@ public sealed class MainForm : Form
         if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase) && !editingSavedBom)
             throw new InvalidOperationException("Выберите другое имя файла, чтобы сохранить исходный BOM.");
         RecalculateTotals();
-        var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != "Total" || boards > 0).OrderBy(c => c.DisplayIndex).ToArray();
+        var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != "SplitPackages" && (c.Name != "Total" || boards > 0) && (!c.Name.StartsWith("Piece") || c.Visible)).OrderBy(c => c.DisplayIndex).ToArray();
         var headers = columns.Select(c => c.Name switch { "Line" => "Line #", "Designator" => "Designator", "Part" => "PartNumber", "Quantity" => "Quantity", "Summary" => "Summary", "Package" => "Упк, шт", _ => c.HeaderText }).ToArray();
         var rows = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && r.DataGridView == grid).Select(row =>
         {
@@ -310,6 +343,13 @@ public sealed class MainForm : Form
         if (source is null) throw new InvalidOperationException("Сначала выберите BOM.");
         if (grid.Rows.Count == 0) throw new InvalidDataException("В таблице нет позиций. Добавьте строки или загрузите BOM.");
         var title = product.Text.Trim(); if (title.Length == 0) throw new InvalidDataException("Введите название изделия.");
+        int? chosenPiece = null;
+        if(singleRow?.Tag is int[] selectedPieces && selectedPieces.Length>0 && package.Checked)
+        {
+            using var pick = new Picker("Какие упаковки печатать?", new[]{"Все упаковки"}.Concat(selectedPieces.Select((n,i)=>$"Упк {i+1}: {n} шт")).ToArray());
+            if(pick.ShowDialog(this)!=DialogResult.OK) return null;
+            if(pick.Index>0) chosenPiece=pick.Index-1;
+        }
         var labels = new List<BomLabel>(); int trimmed = 0;
         var selectedRows = singleRow == null ? grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && r.DataGridView == grid).ToArray() : new[] { singleRow };
         foreach (var row in selectedRows)
@@ -328,7 +368,10 @@ public sealed class MainForm : Form
                 product.Text = prompt.Value; return Generate(singleRow);
             }
             foreach (var (name, value) in new[] { ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
-            var original = new BomLabel(line, des, part, qty, sum, package.Checked && pack.Length > 0 ? pack : null);
+            var pieces = package.Checked ? row.Tag as int[] : null;
+            string?[] packages = pieces is {Length: >0} ? pieces.Where((n,i)=>chosenPiece==null || i==chosenPiece).Select(n=>(string?)n.ToString()).ToArray() : [package.Checked && pack.Length>0 ? pack : null];
+            foreach(var piece in packages) if(piece!=null && !Fits(piece,1)) throw new InvalidDataException($"Line # {line}: количество в упаковке не помещается.");
+            var original = new BomLabel(line, des, part, qty, sum, packages[0]);
             bool FitDesignation(string text, float font, int lines) => Fits(text, lines, false, font);
             var fitted = Designators.Fit(original, FitDesignation);
             List<BomLabel> parts;
@@ -341,7 +384,7 @@ public sealed class MainForm : Form
             foreach (var partLabel in parts)
             {
                 var shortSum = partLabel.SummaryLines == 0 ? "" : Shorten(sum, partLabel.SummaryLines); if (shortSum != sum) trimmed++;
-                labels.Add(partLabel with { Summary = shortSum });
+                foreach(var piece in packages) labels.Add(partLabel with { Summary = shortSum, Package = piece });
             }
         }
         string path;
