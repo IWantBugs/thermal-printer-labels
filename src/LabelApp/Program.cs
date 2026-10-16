@@ -18,6 +18,7 @@ public sealed class MainForm : Form
     int boards;
     ReserveRules reserveRules = new();
     static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve-groups.json");
+    readonly Button splitPackages = new() { Text = "Разбить упаковку", AutoSize = true, Enabled = false };
     bool updatingPieces;
     bool editingSavedBom;
     string? source;
@@ -39,7 +40,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.22"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.23"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -101,22 +102,30 @@ public sealed class MainForm : Form
             batch.Text = $"Плат: {boards} · изменить"; RecalculateTotals(); Appearance.FitColumns(grid);
         });
         package.CheckedChanged += (_, _) => { grid.Columns["Package"].Visible = package.Checked; Appearance.FitColumns(grid); if (package.Checked) status.Text = "Введите количество в упаковке для каждой позиции в столбце «Упк, шт»."; };
-        grid.Columns.Add(new DataGridViewButtonColumn { Name = "SplitPackages", HeaderText = "Упаковки", Text = "Разбить…", UseColumnTextForButtonValue = true, FillWeight = 80 });
-        grid.CellContentClick += (_, e) =>
+        splitPackages.Click += (_, _) => Run(() =>
         {
-            if(e.RowIndex < 0 || e.ColumnIndex != grid.Columns["SplitPackages"].Index) return;
-            Run(() =>
+            if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке.");
+            if(grid.SelectedRows.Count!=1) return;
+            var row=grid.SelectedRows[0]; var old=row.Tag as int[] ?? [];
+            if(old.Length>0)
             {
-                grid.EndEdit(); var row = grid.Rows[e.RowIndex];
-                var old = row.Tag as int[] ?? [];
-                using var countPrompt = new NumberPrompt("Число упаковок", "На сколько упаковок разбить? 0 — убрать разбиение.", old.Length>0 ? old.Length : 2, 0, 1000);
-                if(countPrompt.ShowDialog(this)!=DialogResult.OK) return;
-                if(countPrompt.Value==0) { SetPieces(row,[]); return; }
-                using var prompt = new PackagePiecesForm((int)countPrompt.Value,old);
-                if(prompt.ShowDialog(this) != DialogResult.OK) return;
-                SetPieces(row,prompt.Pieces); package.Checked = true; Appearance.FitColumns(grid);
-            });
-        };
+                using var amount = new NumberPrompt("Добавить отрезок", "Количество компонентов в новом отрезке, шт", 1, 1, int.MaxValue);
+                if(amount.ShowDialog(this)!=DialogResult.OK) return;
+                if(old.Sum(n=>(long)n)+amount.Value>int.MaxValue) throw new InvalidDataException("Сумма упаковок слишком велика.");
+                SetPieces(row,old.Append((int)amount.Value).ToArray());
+            }
+            else
+            {
+                using var count = new NumberPrompt("Число упаковок", "На сколько упаковок разбить?", 2, 1, 1000);
+                if(count.ShowDialog(this)!=DialogResult.OK) return;
+                using var prompt = new PackagePiecesForm((int)count.Value,[]);
+                if(prompt.ShowDialog(this)!=DialogResult.OK) return;
+                SetPieces(row,prompt.Pieces);
+            }
+            package.Checked=true; Appearance.FitColumns(grid); UpdateSplitAction();
+        });
+        grid.SelectionChanged += (_, _) => UpdateSplitAction();
+        grid.RowsRemoved += (_, _) => UpdateSplitAction();
         grid.CellBeginEdit += (_, e) =>
         {
             if(grid.Columns[e.ColumnIndex].Name.StartsWith("Piece") &&
@@ -203,7 +212,7 @@ public sealed class MainForm : Form
             };
             return button;
         }
-        var rowActions = Toolbar(addRows, deleteRows, sortLine, excel,
+        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, excel,
             ColorButton("Зелёный", Color.FromArgb(198,239,206)), ColorButton("Жёлтый", Color.FromArgb(255,235,156)),
             ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Без заливки", Color.Empty));
         foreach (Button button in rowActions.Controls)
@@ -246,6 +255,12 @@ public sealed class MainForm : Form
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
     });
+    void UpdateSplitAction()
+    {
+        splitPackages.Enabled = source != null && grid.SelectedRows.Count == 1;
+        splitPackages.Text = grid.SelectedRows.Count==1 && grid.SelectedRows[0].Tag is int[] { Length: >0 }
+            ? "Добавить отрезок" : "Разбить упаковку";
+    }
     void SetPieces(DataGridViewRow row, int[] pieces)
     {
         updatingPieces=true;
@@ -265,7 +280,7 @@ public sealed class MainForm : Form
         foreach(DataGridViewColumn column in grid.Columns)
             if(column.Name.StartsWith("Piece")) column.Visible = grid.Rows.Cast<DataGridViewRow>().Any(r=>r.Cells[column.Index].Value!=null);
         }
-        finally { updatingPieces=false; }
+        finally { updatingPieces=false; UpdateSplitAction(); }
     }
     void RestoreBom(string path, Sheet sheet, BomSession? state)
     {
