@@ -18,6 +18,7 @@ public sealed class MainForm : Form
     int boards;
     ReserveRules reserveRules = new();
     static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve-groups.json");
+    bool updatingPieces;
     bool editingSavedBom;
     string? source;
     int generatedLabels;
@@ -38,7 +39,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.21"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.22"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -107,10 +108,38 @@ public sealed class MainForm : Form
             Run(() =>
             {
                 grid.EndEdit(); var row = grid.Rows[e.RowIndex];
-                using var prompt = new PackagePiecesForm(row.Tag as int[] ?? []);
+                var old = row.Tag as int[] ?? [];
+                using var countPrompt = new NumberPrompt("Число упаковок", "На сколько упаковок разбить? 0 — убрать разбиение.", old.Length>0 ? old.Length : 2, 0, 1000);
+                if(countPrompt.ShowDialog(this)!=DialogResult.OK) return;
+                if(countPrompt.Value==0) { SetPieces(row,[]); return; }
+                using var prompt = new PackagePiecesForm((int)countPrompt.Value,old);
                 if(prompt.ShowDialog(this) != DialogResult.OK) return;
                 SetPieces(row,prompt.Pieces); package.Checked = true; Appearance.FitColumns(grid);
             });
+        };
+        grid.CellBeginEdit += (_, e) =>
+        {
+            if(grid.Columns[e.ColumnIndex].Name.StartsWith("Piece") &&
+                (grid.Rows[e.RowIndex].Tag is not int[] pieces || !int.TryParse(grid.Columns[e.ColumnIndex].Name[5..],out int number) || number>pieces.Length)) e.Cancel=true;
+        };
+        grid.CellValidating += (_, e) =>
+        {
+            if(!grid.Columns[e.ColumnIndex].Name.StartsWith("Piece") || grid.Rows[e.RowIndex].Tag is not int[] pieces) return;
+            int number=int.Parse(grid.Columns[e.ColumnIndex].Name[5..]);
+            if(number>pieces.Length) return;
+            if(!int.TryParse(Convert.ToString(e.FormattedValue),out int value) || value<=0 || pieces.Sum(n=>(long)n)-pieces[number-1]+value>int.MaxValue)
+            { e.Cancel=true; grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText="Введите целое положительное количество. Сумма должна помещаться в число."; }
+            else grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText="";
+        };
+        grid.CellValueChanged += (_, e) =>
+        {
+            if(updatingPieces || e.RowIndex<0 || e.ColumnIndex<0 || !grid.Columns[e.ColumnIndex].Name.StartsWith("Piece")) return;
+            var row=grid.Rows[e.RowIndex];
+            if(row.Tag is not int[] pieces) return;
+            int number=int.Parse(grid.Columns[e.ColumnIndex].Name[5..]);
+            if(number>pieces.Length || !int.TryParse(Convert.ToString(row.Cells[e.ColumnIndex].Value),out int value) || value<=0) return;
+            var updated=pieces.ToArray(); updated[number-1]=value;
+            if(updated.Sum(n=>(long)n)<=int.MaxValue) SetPieces(row,updated);
         };
         BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
     }
@@ -219,19 +248,24 @@ public sealed class MainForm : Form
     });
     void SetPieces(DataGridViewRow row, int[] pieces)
     {
+        updatingPieces=true;
+        try
+        {
         row.Tag = pieces;
         row.Cells["Package"].ReadOnly = pieces.Length > 0;
         if(pieces.Length > 0) row.Cells["Package"].Value = pieces.Sum();
         for(int i = 0; i < pieces.Length; i++)
         {
             string key = "Piece" + (i+1);
-            if(!grid.Columns.Contains(key)) grid.Columns.Add(new DataGridViewTextBoxColumn { Name=key, HeaderText="Упк " + (i+1), ReadOnly=true, FillWeight=70 });
+            if(!grid.Columns.Contains(key)) grid.Columns.Add(new DataGridViewTextBoxColumn { Name=key, HeaderText="Упк " + (i+1), ReadOnly=false, FillWeight=70 });
         }
         foreach(DataGridViewColumn column in grid.Columns)
             if(column.Name.StartsWith("Piece") && int.TryParse(column.Name[5..],out int number))
                 row.Cells[column.Index].Value = number <= pieces.Length ? pieces[number-1] : null;
         foreach(DataGridViewColumn column in grid.Columns)
             if(column.Name.StartsWith("Piece")) column.Visible = grid.Rows.Cast<DataGridViewRow>().Any(r=>r.Cells[column.Index].Value!=null);
+        }
+        finally { updatingPieces=false; }
     }
     void RestoreBom(string path, Sheet sheet, BomSession? state)
     {
@@ -284,7 +318,7 @@ public sealed class MainForm : Form
     }
     void ExportBom()
     {
-        grid.EndEdit();
+        if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке перед сохранением.");
         if (source == null) throw new InvalidOperationException("Сначала загрузите BOM.");
         using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
             FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
@@ -339,7 +373,7 @@ public sealed class MainForm : Form
     string Shorten(string value, int lines = 3) { if (Fits(value, lines)) return value; var elements = System.Globalization.StringInfo.ParseCombiningCharacters(value); for (int i = elements.Length - 1; i >= 0; i--) { var s = value[..elements[i]].TrimEnd() + "…"; if (Fits(s, lines)) return s; } return "…"; }
     string? Generate(DataGridViewRow? singleRow = null)
     {
-        grid.EndEdit(); Validate();
+        if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке перед печатью."); Validate();
         if (source is null) throw new InvalidOperationException("Сначала выберите BOM.");
         if (grid.Rows.Count == 0) throw new InvalidDataException("В таблице нет позиций. Добавьте строки или загрузите BOM.");
         var title = product.Text.Trim(); if (title.Length == 0) throw new InvalidDataException("Введите название изделия.");
