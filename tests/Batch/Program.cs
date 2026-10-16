@@ -7,3 +7,11 @@ try {
  if(data[0].Length!=7 || data[1][4]!="220" || data[1][3]!="2") throw new Exception("Batch export failed");
 } finally { File.Delete(path); }
 Console.WriteLine("PASS: batch calculation, reserve, rounding, invalid values, overflow and seven-column Excel export");
+
+var rules = new ReserveRules();
+rules.Validate();
+foreach(var (designation, expected) in new (string, decimal)[] { ("R1,R2",10), ("C1-C5",10), ("VD1",10), ("VT2",10), ("U1",5), ("DA1",5), ("DD2",5), ("XS1",3), ("XP1",3), ("L1",3), ("r10",10), ("UR1",3) })
+ if(rules.PercentFor(designation)!=expected) throw new Exception("Reserve group failed: " + designation);
+rules.Groups.Add(new("L",7)); rules.Validate();
+if(rules.PercentFor("L1")!=7) throw new Exception("Custom group failed");
+Console.WriteLine("PASS: default groups, exact prefixes, lowercase, ranges and custom group");

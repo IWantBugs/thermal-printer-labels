@@ -16,20 +16,23 @@ public sealed class MainForm : Form
     readonly CheckBox reserve = new() { Text = "Прибавить тех запас", AutoSize = true, Enabled = false };
     readonly Button batch = new() { Text = "Ввести общее кол-во", AutoSize = true, Enabled = false };
     int boards;
-    decimal reservePercent = 10m;
-    static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve.txt");
+    ReserveRules reserveRules = new();
+    static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve-groups.json");
     string? source;
     int generatedLabels;
     public MainForm()
     {
         try
         {
-            if (File.Exists(SettingsPath) && decimal.TryParse(File.ReadAllText(SettingsPath), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var saved) && saved >= 0 && saved <= 1000) reservePercent = saved;
+            if (File.Exists(SettingsPath))
+            {
+                var saved = System.Text.Json.JsonSerializer.Deserialize<ReserveRules>(File.ReadAllText(SettingsPath));
+                saved?.Validate(); if (saved != null) reserveRules = saved;
+            }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.17"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.18"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -79,7 +82,7 @@ public sealed class MainForm : Form
         grid.Columns["Total"].DisplayIndex = grid.Columns["Quantity"].DisplayIndex + 1;
         grid.Columns["Total"].ReadOnly = true; grid.Columns["Total"].Visible = false;
         grid.Columns["Package"].Visible = false;
-        grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == grid.Columns["Quantity"].Index) RecalculateTotals(); };
+        grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && (e.ColumnIndex == grid.Columns["Quantity"].Index || e.ColumnIndex == grid.Columns["Designator"].Index)) RecalculateTotals(); };
         grid.RowsAdded += (_, _) => RecalculateTotals();
         reserve.CheckedChanged += (_, _) => RecalculateTotals();
         batch.Click += (_, _) => Run(() =>
@@ -130,11 +133,11 @@ public sealed class MainForm : Form
         var settings = new Button { Text = "Настройки", AutoSize = true };
         settings.Click += (_, _) => Run(() =>
         {
-            using var prompt = new NumberPrompt("Настройки", "Технологический запас, % (по умолчанию 10)", reservePercent, 0, 1000, 2);
+            using var prompt = new ReserveSettingsForm(reserveRules);
             if (prompt.ShowDialog(this) != DialogResult.OK) return;
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, prompt.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            reservePercent = prompt.Value; RecalculateTotals();
+            File.WriteAllText(SettingsPath, System.Text.Json.JsonSerializer.Serialize(prompt.Rules));
+            reserveRules = prompt.Rules; RecalculateTotals();
         });
         root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package, batch, reserve, settings), 0, 1);
         root.Controls.Add(Toolbar(save, preview, print, single), 0, 2);
@@ -192,11 +195,13 @@ public sealed class MainForm : Form
     void RecalculateTotals()
     {
         if (boards <= 0) return;
-        reserve.Text = $"Прибавить тех запас ({reservePercent}%)";
-        grid.Columns["Total"].HeaderText = reserve.Checked ? $"Общее + {reservePercent}% ({boards} плат)" : $"Общее кол-во ({boards} плат)";
+        reserve.Text = "Прибавить тех запас (по группам)";
+        grid.Columns["Total"].HeaderText = reserve.Checked ? $"Общее с техзапасом ({boards} плат)" : $"Общее кол-во ({boards} плат)";
         foreach (DataGridViewRow row in grid.Rows)
         {
-            var total = BatchQuantity.Calculate(Convert.ToString(row.Cells["Quantity"].Value) ?? "", boards, reserve.Checked ? reservePercent : 0);
+            var percent = reserve.Checked ? reserveRules.PercentFor(Convert.ToString(row.Cells["Designator"].Value) ?? "") : 0;
+            row.Cells["Total"].ToolTipText = $"Плат: {boards}. Техзапас: {percent}%. Округление вверх.";
+            var total = BatchQuantity.Calculate(Convert.ToString(row.Cells["Quantity"].Value) ?? "", boards, percent);
             row.Cells["Total"].Value = total;
             row.Cells["Total"].ErrorText = total == null ? "Введите положительное количество на одну плату; результат должен помещаться в число." : "";
         }
