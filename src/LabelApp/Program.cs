@@ -19,6 +19,7 @@ public sealed class MainForm : Form
     ReserveRules reserveRules = new();
     static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve-groups.json");
     readonly Button splitPackages = new() { Text = "Разбить упаковку", AutoSize = true, Enabled = false };
+    readonly Button deletePiece = new() { Text = "Удалить отрезок", AutoSize = true, Enabled = false };
     bool updatingPieces;
     bool editingSavedBom;
     string? source;
@@ -40,7 +41,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.23"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.24"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -123,6 +124,19 @@ public sealed class MainForm : Form
                 SetPieces(row,prompt.Pieces);
             }
             package.Checked=true; Appearance.FitColumns(grid); UpdateSplitAction();
+        });
+        deletePiece.Click += (_, _) => Run(() =>
+        {
+            if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке.");
+            if(grid.SelectedRows.Count!=1 || grid.SelectedRows[0].Tag is not int[] { Length: >0 } pieces) return;
+            var row=grid.SelectedRows[0];
+            using var pick=new Picker("Какой отрезок удалить?",pieces.Select((n,i)=>$"Упк {i+1}: {n} шт").ToArray());
+            if(pick.ShowDialog(this)!=DialogResult.OK) return;
+            var remaining=pieces.Where((n,i)=>i!=pick.Index).ToArray();
+            SetPieces(row,remaining);
+            if(remaining.Length==0) row.Cells["Package"].Value="";
+            Appearance.FitColumns(grid);
+            status.Text=remaining.Length>0 ? $"Отрезок удалён. Осталось: {remaining.Length}; сумма: {remaining.Sum()} шт." : "Последний отрезок удалён. Упк, шт можно заполнить вручную.";
         });
         grid.SelectionChanged += (_, _) => UpdateSplitAction();
         grid.RowsRemoved += (_, _) => UpdateSplitAction();
@@ -212,7 +226,7 @@ public sealed class MainForm : Form
             };
             return button;
         }
-        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, excel,
+        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel,
             ColorButton("Зелёный", Color.FromArgb(198,239,206)), ColorButton("Жёлтый", Color.FromArgb(255,235,156)),
             ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Без заливки", Color.Empty));
         foreach (Button button in rowActions.Controls)
@@ -258,6 +272,7 @@ public sealed class MainForm : Form
     void UpdateSplitAction()
     {
         splitPackages.Enabled = source != null && grid.SelectedRows.Count == 1;
+        deletePiece.Enabled = splitPackages.Enabled && grid.SelectedRows[0].Tag is int[] { Length: >0 };
         splitPackages.Text = grid.SelectedRows.Count==1 && grid.SelectedRows[0].Tag is int[] { Length: >0 }
             ? "Добавить отрезок" : "Разбить упаковку";
     }
