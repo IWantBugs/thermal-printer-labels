@@ -5,8 +5,9 @@ namespace LabelCore;
 public record BomExportRow(string[] Values, string? Fill);
 public static class BomExport
 {
-    public static void Save(string path, IReadOnlyList<BomExportRow> rows)
+    public static void Save(string path, IReadOnlyList<BomExportRow> rows, string[]? headers = null)
     {
+        headers ??= ["Line #", "Designator", "PartNumber", "Quantity", "Summary", "Упк, шт"];
         XNamespace s = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         XNamespace r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
         XNamespace p = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -22,9 +23,9 @@ public static class BomExport
             new XElement(s + "cellXfs", new XAttribute("count", 5), Xf(0), Xf(2), Xf(3), Xf(4), Xf(0, 1)),
             new XElement(s + "cellStyles", new XAttribute("count", 1), new XElement(s + "cellStyle", new XAttribute("name", "Normal"), new XAttribute("xfId", 0), new XAttribute("builtinId", 0))));
         XElement Row(int number, string[] values, int style) => new(s + "row", new XAttribute("r", number), values.Select((v, i) => new XElement(s + "c", new XAttribute("r", Bom.ColumnName(i) + number), new XAttribute("t", "inlineStr"), new XAttribute("s", style), new XElement(s + "is", new XElement(s + "t", new XAttribute(XNamespace.Xml + "space", "preserve"), v)))));
-        var data = new XElement(s + "sheetData", Row(1, ["Line #", "Designator", "PartNumber", "Quantity", "Summary", "Упк, шт"], 4));
+        var data = new XElement(s + "sheetData", Row(1, headers, 4));
         for (int i = 0; i < rows.Count; i++) data.Add(Row(i + 2, rows[i].Values, Array.IndexOf(colors, rows[i].Fill) + 1));
-        var sheet = new XElement(s + "worksheet", new XElement(s + "sheetViews", new XElement(s + "sheetView", new XAttribute("workbookViewId", 0), new XElement(s + "pane", new XAttribute("ySplit", 1), new XAttribute("topLeftCell", "A2"), new XAttribute("state", "frozen")))), new XElement(s + "cols", Enumerable.Range(1, 6).Select(i => new XElement(s + "col", new XAttribute("min", i), new XAttribute("max", i), new XAttribute("width", i is 3 or 5 ? 38 : 20), new XAttribute("customWidth", 1)))), data, new XElement(s + "autoFilter", new XAttribute("ref", "A1:F" + (rows.Count + 1))));
+        var sheet = new XElement(s + "worksheet", new XElement(s + "sheetViews", new XElement(s + "sheetView", new XAttribute("workbookViewId", 0), new XElement(s + "pane", new XAttribute("ySplit", 1), new XAttribute("topLeftCell", "A2"), new XAttribute("state", "frozen")))), new XElement(s + "cols", Enumerable.Range(1, headers.Length).Select(i => new XElement(s + "col", new XAttribute("min", i), new XAttribute("max", i), new XAttribute("width", i is 3 or 5 ? 38 : 20), new XAttribute("customWidth", 1)))), data, new XElement(s + "autoFilter", new XAttribute("ref", "A1:" + Bom.ColumnName(headers.Length - 1) + (rows.Count + 1))));
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
         void Write(string name, XElement xml) { using var stream = zip.CreateEntry(name).Open(); new XDocument(xml).Save(stream); }
         Write("[Content_Types].xml", new XElement(ct + "Types", new XElement(ct + "Default", new XAttribute("Extension", "rels"), new XAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml")), new XElement(ct + "Default", new XAttribute("Extension", "xml"), new XAttribute("ContentType", "application/xml")), new[] { ("/xl/workbook.xml", "sheet.main"), ("/xl/worksheets/sheet1.xml", "worksheet"), ("/xl/styles.xml", "styles") }.Select(x => new XElement(ct + "Override", new XAttribute("PartName", x.Item1), new XAttribute("ContentType", "application/vnd.openxmlformats-officedocument.spreadsheetml." + x.Item2 + "+xml")))));

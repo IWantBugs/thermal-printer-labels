@@ -13,12 +13,23 @@ public sealed class MainForm : Form
     readonly TextBox product = new() { Width = 220 };
     readonly CheckBox package = new() { Text = "Добавить «Упк, шт»", AutoSize = true };
     readonly Label status = new() { AutoSize = true, Text = "Выберите BOM (.xlsx). Данные можно исправить перед сохранением." };
+    readonly CheckBox reserve = new() { Text = "Прибавить тех запас", AutoSize = true, Enabled = false };
+    readonly Button batch = new() { Text = "Ввести общее кол-во", AutoSize = true, Enabled = false };
+    int boards;
+    decimal reservePercent = 10m;
+    static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ThermalPrinterLabels", "reserve.txt");
     string? source;
     int generatedLabels;
     public MainForm()
     {
+        try
+        {
+            if (File.Exists(SettingsPath) && decimal.TryParse(File.ReadAllText(SettingsPath), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var saved) && saved >= 0 && saved <= 1000) reservePercent = saved;
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.16"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.17"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -64,7 +75,21 @@ public sealed class MainForm : Form
         var about = new Button() { Text = "О программе", AutoSize = true };
         about.Click += (_, _) => { using var info = new AboutForm(Icon); info.ShowDialog(this); };
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
+        grid.Columns.Add("Total", "Общее кол-во");
+        grid.Columns["Total"].DisplayIndex = grid.Columns["Quantity"].DisplayIndex + 1;
+        grid.Columns["Total"].ReadOnly = true; grid.Columns["Total"].Visible = false;
         grid.Columns["Package"].Visible = false;
+        grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == grid.Columns["Quantity"].Index) RecalculateTotals(); };
+        grid.RowsAdded += (_, _) => RecalculateTotals();
+        reserve.CheckedChanged += (_, _) => RecalculateTotals();
+        batch.Click += (_, _) => Run(() =>
+        {
+            grid.EndEdit();
+            using var prompt = new NumberPrompt("Количество плат", "Сколько плат нужно изготовить?", Math.Max(boards, 1), 1, 1000000000);
+            if (prompt.ShowDialog(this) != DialogResult.OK) return;
+            boards = (int)prompt.Value; reserve.Enabled = true; grid.Columns["Total"].Visible = true;
+            batch.Text = $"Плат: {boards} · изменить"; RecalculateTotals(); Appearance.FitColumns(grid);
+        });
         package.CheckedChanged += (_, _) => { grid.Columns["Package"].Visible = package.Checked; Appearance.FitColumns(grid); if (package.Checked) status.Text = "Введите количество в упаковке для каждой позиции в столбце «Упк, шт»."; };
         BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
     }
@@ -102,7 +127,16 @@ public sealed class MainForm : Form
         }
         product.Width = 270;
         package.Padding = new Padding(4, 6, 4, 0);
-        root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package), 0, 1);
+        var settings = new Button { Text = "Настройки", AutoSize = true };
+        settings.Click += (_, _) => Run(() =>
+        {
+            using var prompt = new NumberPrompt("Настройки", "Технологический запас, % (по умолчанию 10)", reservePercent, 0, 1000, 2);
+            if (prompt.ShowDialog(this) != DialogResult.OK) return;
+            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+            File.WriteAllText(SettingsPath, prompt.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            reservePercent = prompt.Value; RecalculateTotals();
+        });
+        root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package, batch, reserve, settings), 0, 1);
         root.Controls.Add(Toolbar(save, preview, print, single), 0, 2);
         var excel = new Button { Text = "Сохранить BOM в Excel…", AutoSize = true };
         excel.Click += (_, _) => Run(ExportBom);
@@ -147,12 +181,26 @@ public sealed class MainForm : Form
         if (mapping.ShowDialog(this) != DialogResult.OK) return;
         var records = Bom.ProjectRows(sheet, mapping.HeaderRow, mapping.Map);
         if (records.Count == 0) throw new InvalidDataException("После заголовков нет позиций BOM.");
+        boards = 0; reserve.Checked = false; reserve.Enabled = false; batch.Enabled = true;
+        batch.Text = "Ввести общее кол-во"; grid.Columns["Total"].Visible = false;
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
         foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], r[5]);
         package.Checked = mapping.Map[5] >= 0;
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
     });
+    void RecalculateTotals()
+    {
+        if (boards <= 0) return;
+        reserve.Text = $"Прибавить тех запас ({reservePercent}%)";
+        grid.Columns["Total"].HeaderText = reserve.Checked ? $"Общее + {reservePercent}% ({boards} плат)" : $"Общее кол-во ({boards} плат)";
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            var total = BatchQuantity.Calculate(Convert.ToString(row.Cells["Quantity"].Value) ?? "", boards, reserve.Checked ? reservePercent : 0);
+            row.Cells["Total"].Value = total;
+            row.Cells["Total"].ErrorText = total == null ? "Введите положительное количество на одну плату; результат должен помещаться в число." : "";
+        }
+    }
     void ExportBom()
     {
         grid.EndEdit();
@@ -162,14 +210,17 @@ public sealed class MainForm : Form
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Выберите другое имя файла, чтобы сохранить исходный BOM.");
+        RecalculateTotals();
+        var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != "Total" || boards > 0).OrderBy(c => c.DisplayIndex).ToArray();
+        var headers = columns.Select(c => c.Name switch { "Line" => "Line #", "Designator" => "Designator", "Part" => "PartNumber", "Quantity" => "Quantity", "Summary" => "Summary", "Package" => "Упк, шт", _ => c.HeaderText }).ToArray();
         var rows = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && r.DataGridView == grid).Select(row =>
         {
             var color = row.DefaultCellStyle.BackColor;
             string? fill = color.IsEmpty ? null : "FF" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
-            return new BomExportRow(grid.Columns.Cast<DataGridViewColumn>().Select(c => Convert.ToString(row.Cells[c.Index].Value) ?? "").ToArray(), fill);
+            return new BomExportRow(columns.Select(c => Convert.ToString(row.Cells[c.Index].Value) ?? "").ToArray(), fill);
         }).ToArray();
         var temp = Path.Combine(Path.GetDirectoryName(dialog.FileName)!, Guid.NewGuid() + ".xlsx");
-        try { BomExport.Save(temp, rows); File.Move(temp, dialog.FileName, true); }
+        try { BomExport.Save(temp, rows, headers); File.Move(temp, dialog.FileName, true); }
         finally { if (File.Exists(temp)) File.Delete(temp); }
         status.Text = "Редакция BOM сохранена: " + dialog.FileName;
     }
