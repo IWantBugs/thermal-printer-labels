@@ -57,5 +57,16 @@ try {
 } finally {File.Delete(labelFile);}
 Console.WriteLine("PASS: Excel split columns and two separate 150-piece labels");
 
-if(!StockCheck.IsShort("150",300) || StockCheck.IsShort("",300) || StockCheck.IsShort("300",300) || StockCheck.IsShort("350",300) || StockCheck.IsShort("bad",300) || StockCheck.IsShort("150",null) || !StockCheck.IsShort("0",300)) throw new Exception("Stock shortage detection failed");
+if(!StockCheck.IsShort("150",300) || !StockCheck.IsShort("",300) || StockCheck.IsShort("300",300) || StockCheck.IsShort("350",300) || StockCheck.IsShort("bad",300) || StockCheck.IsShort("150",null) || !StockCheck.IsShort("0",300)) throw new Exception("Stock shortage detection failed");
 Console.WriteLine("PASS: shortage detection, equality, empty packaging and absent totals");
+
+if(StockCheck.Missing("150",300)!=150 || StockCheck.Missing("300",300)!=0 || StockCheck.Missing("350",300)!=0 || StockCheck.Missing("",300)!=300 || StockCheck.Missing("150",330)!=180) throw new Exception("Deficit difference failed");
+var deficitPath=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".xlsx");
+try {
+ var stock=new[]{("1","150",300m),("2","300",300m),("3","",300m)};
+ var deficits=stock.Where(r=>StockCheck.IsShort(r.Item2,r.Item3)).Select(r=>new BomExportRow(new[]{r.Item1,r.Item2,StockCheck.Missing(r.Item2,r.Item3)!.Value.ToString()},null)).ToArray();
+ BomExport.Save(deficitPath,deficits,new[]{"Line #","Упк, шт","Не хватает, шт"});
+ var result=Bom.Read(deficitPath)[0].Rows;
+ if(result.Count!=3 || result[1][2]!="150" || result[2][2]!="300") throw new Exception("Deficit export failed");
+} finally {File.Delete(deficitPath);}
+Console.WriteLine("PASS: deficit difference and filtered Excel export");

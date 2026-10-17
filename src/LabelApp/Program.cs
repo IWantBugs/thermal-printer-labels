@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.1"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.2"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -250,7 +250,9 @@ public sealed class MainForm : Form
             using var pick=new Picker("Какие строки сохранить в отдельный Excel?",["Все строки","Только жёлтые","Только зелёные","Только красные","Выделенные вручную (Ctrl/Shift)"]);
             if(pick.ShowDialog(this)==DialogResult.OK) ExportBom(pick.Index,true);
         });
-        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel, subset,
+        var shortage=new Button {Text="Сохранить дефицит…",AutoSize=true};
+        shortage.Click+=(_,_)=>Run(()=>ExportBom(5,true));
+        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel, subset, shortage,
             ColorButton("Зелёный", Color.FromArgb(198,239,206)), ColorButton("Жёлтый", Color.FromArgb(255,235,156)),
             ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Без заливки", Color.Empty));
         foreach (Button button in rowActions.Controls)
@@ -407,16 +409,19 @@ public sealed class MainForm : Form
     {
         if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке перед сохранением.");
         if (source == null) throw new InvalidOperationException("Сначала загрузите BOM.");
+        RecalculateTotals();
+        if(filter==5 && boards<=0) throw new InvalidOperationException("Сначала введите число плат для расчёта общего количества.");
         var exportRows=grid.Rows.Cast<DataGridViewRow>().Where(r=>!r.IsNewRow && r.DataGridView==grid).Where(row=>filter switch
         {
             1=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(255,235,156).ToArgb(),
             2=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(198,239,206).ToArgb(),
             3=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(255,199,206).ToArgb(),
             4=>row.Selected,
+            5=>StockCheck.IsShort(Convert.ToString(row.Cells["Package"].Value),row.Cells["Total"].Value as decimal?),
             _=>true
         }).ToArray();
-        if(separate && exportRows.Length==0) throw new InvalidOperationException("Нет строк для выбранного варианта сохранения.");
-        string suffix=separate ? new[]{"_COPY","_YELLOW","_GREEN","_RED","_SELECTED"}[filter] : "";
+        if(separate && exportRows.Length==0) throw new InvalidOperationException(filter==5 ? "Дефицита нет: строк с нехваткой компонентов не найдено." : "Нет строк для выбранного варианта сохранения.");
+        string suffix=separate ? new[]{"_COPY","_YELLOW","_GREEN","_RED","_SELECTED","_DEFICIT"}[filter] : "";
         using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
             FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + suffix + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return false;
@@ -425,11 +430,19 @@ public sealed class MainForm : Form
         RecalculateTotals();
         var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != "SplitPackages" && (c.Name != "Total" || boards > 0) && (!c.Name.StartsWith("Piece") || c.Visible)).OrderBy(c => c.DisplayIndex).ToArray();
         var headers = columns.Select(c => c.Name switch { "Line" => "Line #", "Designator" => "Designator", "Part" => "PartNumber", "Quantity" => "Quantity", "Summary" => "Summary", "Package" => "Упк, шт", _ => c.HeaderText }).ToArray();
+        int shortageIndex=Array.FindIndex(columns,c=>c.Name=="Package")+1;
+        if(filter==5) headers=headers.Take(shortageIndex).Concat(new[]{"Не хватает, шт"}).Concat(headers.Skip(shortageIndex)).ToArray();
         var rows = exportRows.Select(row =>
         {
             var color = row.DefaultCellStyle.BackColor;
             string? fill = color.IsEmpty ? null : "FF" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
-            return new BomExportRow(columns.Select(c => Convert.ToString(row.Cells[c.Index].Value) ?? "").ToArray(), fill);
+            var values=columns.Select(c => Convert.ToString(row.Cells[c.Index].Value) ?? "").ToArray();
+            if(filter==5)
+            {
+                var missing=StockCheck.Missing(Convert.ToString(row.Cells["Package"].Value),row.Cells["Total"].Value as decimal?);
+                values=values.Take(shortageIndex).Concat(new[]{missing!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}).Concat(values.Skip(shortageIndex)).ToArray();
+            }
+            return new BomExportRow(values, fill);
         }).ToArray();
         var temp = Path.Combine(Path.GetDirectoryName(dialog.FileName)!, Guid.NewGuid() + ".xlsx");
         try
