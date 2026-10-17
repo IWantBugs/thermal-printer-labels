@@ -70,3 +70,10 @@ try {
  if(result.Count!=3 || result[1][2]!="150" || result[2][2]!="300") throw new Exception("Deficit export failed");
 } finally {File.Delete(deficitPath);}
 Console.WriteLine("PASS: deficit difference and filtered Excel export");
+
+var notesFile=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".xlsx");
+try {
+ BomExport.Save(notesFile,new[]{new BomExportRow(new[]{"1","R1","P","2","","100","Давальческая позиция; Проверить"},"FFDDEBF7")},new[]{"Line #","Designator","PartNumber","Quantity","Summary","Упк, шт","Примечание"});
+ if(Bom.Read(notesFile)[0].Rows[1][6]!="Давальческая позиция; Проверить" || BomSession.Colors(notesFile)[0]!="FFDDEBF7") throw new Exception("Notes or customer color lost");
+} finally {File.Delete(notesFile);}
+Console.WriteLine("PASS: notes and light-blue customer row Excel roundtrip");

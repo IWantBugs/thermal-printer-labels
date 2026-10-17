@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.3"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.4"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -89,6 +89,7 @@ public sealed class MainForm : Form
         about.Click += (_, _) => { using var info = new AboutForm(Icon); info.ShowDialog(this); };
         foreach (var (key, title) in new[] { ("Line", "Line #"), ("Designator", "Обозн."), ("Part", "Парт"), ("Quantity", "Кол-во / плата"), ("Summary", "Sum"), ("Package", "Упк, шт") }) grid.Columns.Add(key, title);
         grid.Columns.Add("Total", "Общее кол-во");
+        grid.Columns.Add("Notes", "Примечание");
         grid.Columns["Total"].DisplayIndex = grid.Columns["Quantity"].DisplayIndex + 1;
         grid.Columns["Total"].ReadOnly = true; grid.Columns["Total"].Visible = false;
         grid.Columns["Package"].Visible = false;
@@ -238,6 +239,12 @@ public sealed class MainForm : Form
                 foreach (DataGridViewRow row in grid.SelectedRows)
                 {
                     row.DefaultCellStyle.BackColor = color;
+                    if(color.ToArgb()==Color.FromArgb(221,235,247).ToArgb())
+                    {
+                        string note=Convert.ToString(row.Cells["Notes"].Value)??"";
+                        if(!note.Contains("Давальческая позиция",StringComparison.OrdinalIgnoreCase))
+                            row.Cells["Notes"].Value=note.Length==0 ? "Давальческая позиция" : note+"; Давальческая позиция";
+                    }
                     row.DefaultCellStyle.SelectionBackColor = color.IsEmpty ? grid.DefaultCellStyle.SelectionBackColor : ControlPaint.Dark(color, 0.05f);
                 }
             };
@@ -247,18 +254,19 @@ public sealed class MainForm : Form
         subset.Click+=(_,_)=>Run(()=>
         {
             if(source==null) throw new InvalidOperationException("Сначала загрузите BOM.");
-            using var pick=new Picker("Какие строки сохранить в отдельный Excel?",["Все строки","Только жёлтые","Только зелёные","Только красные","Выделенные вручную (Ctrl/Shift)"]);
-            if(pick.ShowDialog(this)==DialogResult.OK) ExportBom(pick.Index,true);
+            using var pick=new Picker("Какие строки сохранить в отдельный Excel?",["Все строки","Только жёлтые","Только зелёные","Только красные","Выделенные вручную (Ctrl/Shift)","Только светло-синие (давальческие)"]);
+            if(pick.ShowDialog(this)==DialogResult.OK) ExportBom(pick.Index==5 ? 6 : pick.Index,true);
         });
         var shortage=new Button {Text="Сохранить дефицит…",AutoSize=true};
         shortage.Click+=(_,_)=>Run(()=>ExportBom(5,true));
         var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel, subset, shortage,
             ColorButton("Зелёный", Color.FromArgb(198,239,206)), ColorButton("Жёлтый", Color.FromArgb(255,235,156)),
-            ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Без заливки", Color.Empty));
+            ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Давальческая позиция", Color.FromArgb(221,235,247)), ColorButton("Без заливки", Color.Empty));
         foreach (Button button in rowActions.Controls)
             if (button.Text == "Зелёный") button.BackColor = Color.FromArgb(198,239,206);
             else if (button.Text == "Жёлтый") button.BackColor = Color.FromArgb(255,235,156);
             else if (button.Text == "Красный") button.BackColor = Color.FromArgb(255,199,206);
+            else if(button.Text=="Давальческая позиция") button.BackColor=Color.FromArgb(221,235,247);
         root.Controls.Add(rowActions, 0, 3);
         Appearance.Table(grid);
         var table = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Appearance.Border, Margin = new Padding(0) };
@@ -277,7 +285,7 @@ public sealed class MainForm : Form
             Columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => !c.Name.StartsWith("Piece") || c.Visible).Select(c => new { c.Name, c.FillWeight }).ToArray(),
             Rows = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow).Select(r => new
             {
-                Values = new[] { "Line", "Designator", "Part", "Quantity", "Summary", "Package" }.Select(key => Convert.ToString(r.Cells[key].Value) ?? "").ToArray(),
+                Values = new[] { "Line", "Designator", "Part", "Quantity", "Summary", "Package", "Notes" }.Select(key => Convert.ToString(r.Cells[key].Value) ?? "").ToArray(),
                 Pieces = r.Tag as int[] ?? [], Color = r.DefaultCellStyle.BackColor.ToArgb()
             }).ToArray()
         });
@@ -314,14 +322,18 @@ public sealed class MainForm : Form
         int hi = sheet.Rows.FindIndex(r => r.Any(c => c.Equals("Designator", StringComparison.OrdinalIgnoreCase)) && r.Any(c => c.Equals("Quantity", StringComparison.OrdinalIgnoreCase)));
         using var mapping = new ColumnMapping(sheet, Math.Max(hi, 0));
         if (mapping.ShowDialog(this) != DialogResult.OK) return;
-        var records = Bom.ProjectRows(sheet, mapping.HeaderRow, mapping.Map);
+        int noteColumn=Array.FindIndex(sheet.Rows[mapping.HeaderRow],h=>h.Trim().Equals("Примечание",StringComparison.OrdinalIgnoreCase) || h.Trim().Equals("Notes",StringComparison.OrdinalIgnoreCase));
+        var records = Bom.ProjectRows(sheet, mapping.HeaderRow, mapping.Map.Append(noteColumn).ToArray());
         if (records.Count == 0) throw new InvalidDataException("После заголовков нет позиций BOM.");
         editingSavedBom = false;
         boards = 0; reserve.Checked = false; reserve.Enabled = false; batch.Enabled = true;
         batch.Text = "Ввести общее кол-во"; grid.Columns["Total"].Visible = false;
         source = dialog.FileName; product.Text = Bom.Product(source); grid.Rows.Clear();
         foreach(DataGridViewColumn c in grid.Columns) if(c.Name.StartsWith("Piece")) c.Visible=false;
-        foreach (var r in records) grid.Rows.Add(r[0], r[1], r[2], r[3], r[4], r[5]);
+        foreach (var r in records)
+        {
+            int index=grid.Rows.Add(r[0],r[1],r[2],r[3],r[4],r[5]); grid.Rows[index].Cells["Notes"].Value=r[6];
+        }
         package.Checked = mapping.Map[5] >= 0;
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
@@ -353,7 +365,7 @@ public sealed class MainForm : Form
         foreach(DataGridViewColumn column in grid.Columns)
             if(column.Name.StartsWith("Piece")) column.Visible = grid.Rows.Cast<DataGridViewRow>().Any(r=>r.Cells[column.Index].Value!=null);
         }
-        finally { updatingPieces=false; UpdateSplitAction(); }
+        finally { updatingPieces=false; grid.Columns["Notes"].DisplayIndex=grid.Columns.Count-1; UpdateSplitAction(); }
     }
     void RestoreBom(string path, Sheet sheet, BomSession? state)
     {
@@ -372,6 +384,8 @@ public sealed class MainForm : Form
         for (int i = 0; i < records.Count; i++)
         {
             int index = grid.Rows.Add(records[i].Cast<object>().ToArray());
+            int noteColumn=Array.IndexOf(headers,"Примечание");
+            if(noteColumn>=0 && noteColumn<sheet.Rows[i+1].Length) grid.Rows[index].Cells["Notes"].Value=sheet.Rows[i+1][noteColumn];
             var pieces = sheet.Rows[i+1].Select((value, c)=>(value,c)).Where(x => x.c < headers.Length && System.Text.RegularExpressions.Regex.IsMatch(headers[x.c], @"^Упк \d+$") && x.value.Length>0).Select(x=>x.value).ToArray();
             if(pieces.Length>0) SetPieces(grid.Rows[index],PackagePieces.Parse(string.Join(";",pieces)));
             if (i < colors.Length && colors[i] is string color && color.Length == 8 && uint.TryParse(color, System.Globalization.NumberStyles.HexNumber, null, out uint argb))
@@ -415,11 +429,12 @@ public sealed class MainForm : Form
             2=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(198,239,206).ToArgb(),
             3=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(255,199,206).ToArgb(),
             4=>row.Selected,
+            6=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(221,235,247).ToArgb(),
             5=>StockCheck.IsShort(Convert.ToString(row.Cells["Package"].Value),row.Cells["Total"].Value as decimal?),
             _=>true
         }).ToArray();
         if(separate && exportRows.Length==0) throw new InvalidOperationException(filter==5 ? "Дефицита нет: строк с нехваткой компонентов не найдено." : "Нет строк для выбранного варианта сохранения.");
-        string suffix=separate ? new[]{"_COPY","_YELLOW","_GREEN","_RED","_SELECTED","_DEFICIT"}[filter] : "";
+        string suffix=separate ? new[]{"_COPY","_YELLOW","_GREEN","_RED","_SELECTED","_DEFICIT","_CUSTOMER"}[filter] : "";
         using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
             FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + suffix + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return false;
