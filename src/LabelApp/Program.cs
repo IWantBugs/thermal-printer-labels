@@ -22,6 +22,7 @@ public sealed class MainForm : Form
     readonly Button deletePiece = new() { Text = "Удалить отрезок", AutoSize = true, Enabled = false };
     bool updatingPieces;
     bool editingSavedBom;
+    string? savedState;
     string? source;
     int generatedLabels;
     public MainForm()
@@ -41,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.0.24"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.1.0"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -212,7 +213,7 @@ public sealed class MainForm : Form
         root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package, batch, reserve, settings), 0, 1);
         root.Controls.Add(Toolbar(save, preview, print, single), 0, 2);
         var excel = new Button { Text = "Сохранить BOM в Excel…", AutoSize = true };
-        excel.Click += (_, _) => Run(ExportBom);
+        excel.Click += (_, _) => Run(() => ExportBom());
         Button ColorButton(string text, Color color)
         {
             var button = new Button { Text = text, AutoSize = true };
@@ -243,6 +244,37 @@ public sealed class MainForm : Form
         Controls.Add(root); ResumeLayout(true);
     }
     void Run(Action action) { try { action(); } catch (Exception e) { MessageBox.Show(this, e.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
+    string CaptureState()
+    {
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            Product = product.Text, Boards = boards, Reserve = reserve.Checked, Package = package.Checked, Rules = reserveRules,
+            Columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => !c.Name.StartsWith("Piece") || c.Visible).Select(c => new { c.Name, c.FillWeight }).ToArray(),
+            Rows = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow).Select(r => new
+            {
+                Values = new[] { "Line", "Designator", "Part", "Quantity", "Summary", "Package" }.Select(key => Convert.ToString(r.Cells[key].Value) ?? "").ToArray(),
+                Pieces = r.Tag as int[] ?? [], Color = r.DefaultCellStyle.BackColor.ToArgb()
+            }).ToArray()
+        });
+    }
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        if(e.Cancel || source == null) return;
+        try
+        {
+            bool committed = grid.EndEdit();
+            if(committed && savedState == CaptureState()) return;
+            var answer = MessageBox.Show(this,"Есть несохранённые изменения. Сохранить редакцию BOM_EDIT перед закрытием?", "Сохранить BOM_EDIT?",
+                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1);
+            if(answer == DialogResult.Cancel) e.Cancel=true;
+            else if(answer == DialogResult.Yes) e.Cancel=!ExportBom();
+        }
+        catch(Exception ex)
+        {
+            e.Cancel=true; MessageBox.Show(this,ex.Message,"Не удалось сохранить BOM_EDIT",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
+    }
     void LoadBom() => Run(() =>
     {
         using var dialog = new OpenFileDialog() { Filter = "Excel BOM (*.xlsx)|*.xlsx", Title = "Выберите BOM" }; if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -268,6 +300,7 @@ public sealed class MainForm : Form
         package.Checked = mapping.Map[5] >= 0;
         Appearance.FitColumns(grid);
         status.Text = $"Загружено позиций: {records.Count}. " + (package.Checked ? "Проверьте значения «Упк, шт» из BOM." : "Проверьте данные перед генерацией.");
+        savedState = CaptureState();
     });
     void UpdateSplitAction()
     {
@@ -331,6 +364,7 @@ public sealed class MainForm : Form
         foreach (var entry in state.Widths)
             if (grid.Columns.Contains(entry.Key) && float.IsFinite(entry.Value) && entry.Value > 0 && entry.Value <= 65535) grid.Columns[entry.Key].FillWeight = entry.Value;
         status.Text = $"Открыта редакция BOM: {records.Count} позиций. Заливки восстановлены.";
+        savedState = CaptureState();
     }
     void RecalculateTotals()
     {
@@ -346,13 +380,13 @@ public sealed class MainForm : Form
             row.Cells["Total"].ErrorText = total == null ? "Введите положительное количество на одну плату; результат должен помещаться в число." : "";
         }
     }
-    void ExportBom()
+    bool ExportBom()
     {
         if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке перед сохранением.");
         if (source == null) throw new InvalidOperationException("Сначала загрузите BOM.");
         using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
             FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (dialog.ShowDialog(this) != DialogResult.OK) return false;
         if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase) && !editingSavedBom)
             throw new InvalidOperationException("Выберите другое имя файла, чтобы сохранить исходный BOM.");
         RecalculateTotals();
@@ -374,6 +408,8 @@ public sealed class MainForm : Form
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
         status.Text = "Редакция BOM сохранена: " + dialog.FileName;
+        savedState = CaptureState();
+        return true;
     }
     void AddRows()
     {
