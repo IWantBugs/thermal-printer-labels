@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.1.0"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.0"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -211,7 +211,14 @@ public sealed class MainForm : Form
             reserveRules = prompt.Rules; RecalculateTotals();
         });
         root.Controls.Add(Toolbar(load, new Label { Text = "Изделие", AutoSize = true, Padding = new Padding(2, 7, 2, 0) }, product, package, batch, reserve, settings), 0, 1);
-        root.Controls.Add(Toolbar(save, preview, print, single), 0, 2);
+        var nativePrint=new Button {Text="Печать без Word…",AutoSize=true};
+        nativePrint.Click+=(_,_)=>Run(()=>Generate(null,true));
+        var nativeRow=new Button {Text="Строка без Word…",AutoSize=true};
+        nativeRow.Click+=(_,_)=>Run(()=>
+        {
+            var row=grid.CurrentRow??throw new InvalidOperationException("Выберите строку.");Generate(row,true);
+        });
+        root.Controls.Add(Toolbar(nativePrint,nativeRow,save,preview,print,single),0,2);
         var excel = new Button { Text = "Сохранить BOM в Excel…", AutoSize = true };
         excel.Click += (_, _) => Run(() => ExportBom());
         Button ColorButton(string text, Color color)
@@ -437,11 +444,12 @@ public sealed class MainForm : Form
         return size.Width <= width + 0.5f && size.Height <= lines * font.GetHeight(g) + 0.5f;
     }
     string Shorten(string value, int lines = 3) { if (Fits(value, lines)) return value; var elements = System.Globalization.StringInfo.ParseCombiningCharacters(value); for (int i = elements.Length - 1; i >= 0; i--) { var s = value[..elements[i]].TrimEnd() + "…"; if (Fits(s, lines)) return s; } return "…"; }
-    string? Generate(DataGridViewRow? singleRow = null)
+    string? Generate(DataGridViewRow? singleRow = null, bool direct = false)
     {
         if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке перед печатью."); Validate();
         if (source is null) throw new InvalidOperationException("Сначала выберите BOM.");
         if (grid.Rows.Count == 0) throw new InvalidDataException("В таблице нет позиций. Добавьте строки или загрузите BOM.");
+        bool FitText(string text,int lines,bool bold=false,float font=8) => direct ? NativeLabelRenderer.Fits(text,lines,bold,font) : Fits(text,lines,bold,font);
         var title = product.Text.Trim(); if (title.Length == 0) throw new InvalidDataException("Введите название изделия.");
         int? chosenPiece = null;
         if(singleRow?.Tag is int[] selectedPieces && selectedPieces.Length>0 && package.Checked)
@@ -459,20 +467,20 @@ public sealed class MainForm : Form
             if (new[] { line, des, part, qty }.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException($"Позиция {row.Index + 1}: заполните Line #, Обозн., Парт и Кол-во.");
             if (!decimal.TryParse(qty.Replace(',', '.'), System.Globalization.NumberStyles.AllowDecimalPoint | System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var q) || q <= 0) throw new InvalidDataException($"Позиция {row.Index + 1}: «Кол-во» должно быть положительным числом.");
             if (package.Checked && pack.Length > 0 && (!int.TryParse(pack, out var n) || n <= 0)) throw new InvalidDataException($"Line # {line}: «Упк, шт» должно быть целым положительным числом или пустым.");
-            if (!Fits(Document.Heading(title, line), 2, true))
+            if (!FitText(Document.Heading(title, line), 2, true))
             {
-                int limit = title.Length; while (limit > 0 && !Fits(Document.Heading(title[..limit], line), 2, true)) limit--;
+                int limit = title.Length; while (limit > 0 && !FitText(Document.Heading(title[..limit], line), 2, true)) limit--;
                 if (limit == 0) throw new InvalidDataException($"Позиция {row.Index + 1}: номер Line # слишком длинный для этикетки.");
                 using var prompt = new TextPrompt($"Название изделия не помещается. Сократите его (для текущего текста до {limit} символов).", title, limit);
                 if (prompt.ShowDialog(this) != DialogResult.OK) return null;
-                product.Text = prompt.Value; return Generate(singleRow);
+                product.Text = prompt.Value; return Generate(singleRow,direct);
             }
-            foreach (var (name, value) in new[] { ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!Fits(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
+            foreach (var (name, value) in new[] { ("Кол-во", qty), ("Упк, шт", package.Checked ? pack : "") }) if (!FitText(value, 1)) throw new InvalidDataException($"Позиция {row.Index + 1}: «{name}» не помещается. Сократите значение в таблице.");
             var pieces = package.Checked ? row.Tag as int[] : null;
             string?[] packages = pieces is {Length: >0} ? pieces.Where((n,i)=>chosenPiece==null || i==chosenPiece).Select(n=>(string?)n.ToString()).ToArray() : [package.Checked && pack.Length>0 ? pack : null];
-            foreach(var piece in packages) if(piece!=null && !Fits(piece,1)) throw new InvalidDataException($"Line # {line}: количество в упаковке не помещается.");
+            foreach(var piece in packages) if(piece!=null && !FitText(piece,1)) throw new InvalidDataException($"Line # {line}: количество в упаковке не помещается.");
             var original = new BomLabel(line, des, part, qty, sum, packages[0]);
-            bool FitDesignation(string text, float font, int lines) => Fits(text, lines, false, font);
+            bool FitDesignation(string text, float font, int lines) => FitText(text, lines, false, font);
             var fitted = Designators.Fit(original, FitDesignation);
             List<BomLabel> parts;
             if (fitted != null) parts = [fitted];
@@ -486,6 +494,10 @@ public sealed class MainForm : Form
                 var shortSum = partLabel.SummaryLines == 0 ? "" : Shorten(sum, partLabel.SummaryLines); if (shortSum != sum) trimmed++;
                 foreach(var piece in packages) labels.Add(partLabel with { Summary = shortSum, Package = piece });
             }
+        }
+        if(direct)
+        {
+            using var preview=new NativePrintForm(title,labels);preview.ShowDialog(this);return null;
         }
         string path;
         if (singleRow == null) path = Bom.Output(source);
