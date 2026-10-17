@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.2"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.3"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -386,8 +386,6 @@ public sealed class MainForm : Form
         grid.Columns["Total"].Visible = boards > 0;
         batch.Text = boards > 0 ? $"Плат: {boards} · изменить" : "Ввести общее кол-во";
         RecalculateTotals(); Appearance.FitColumns(grid);
-        foreach (var entry in state.Widths)
-            if (grid.Columns.Contains(entry.Key) && float.IsFinite(entry.Value) && entry.Value > 0 && entry.Value <= 65535) grid.Columns[entry.Key].FillWeight = entry.Value;
         status.Text = $"Открыта редакция BOM: {records.Count} позиций. Заливки восстановлены.";
         savedState = CaptureState();
     }
