@@ -56,3 +56,6 @@ try {
  if(xml.Descendants(w+"tbl").Count()!=2 || xml.Descendants(w+"t").Count(t=>t.Value=="150")!=2) throw new Exception("Piece labels failed");
 } finally {File.Delete(labelFile);}
 Console.WriteLine("PASS: Excel split columns and two separate 150-piece labels");
+
+if(!StockCheck.IsShort("150",300) || StockCheck.IsShort("",300) || StockCheck.IsShort("300",300) || StockCheck.IsShort("350",300) || StockCheck.IsShort("bad",300) || StockCheck.IsShort("150",null) || !StockCheck.IsShort("0",300)) throw new Exception("Stock shortage detection failed");
+Console.WriteLine("PASS: shortage detection, equality, empty packaging and absent totals");

@@ -10,7 +10,7 @@ internal sealed class NativePrintForm : Form
     readonly ComboBox printers=new() {Width=280,DropDownStyle=ComboBoxStyle.DropDownList};
     readonly NumericUpDown page=new() {Minimum=1,Width=65};
     readonly NumericUpDown copies=new() {Minimum=1,Maximum=999,Value=1,Width=65};
-    readonly NumericUpDown x=new() {Minimum=-10,Maximum=10,DecimalPlaces=1,Increment=0.1m,Width=65};
+    readonly NumericUpDown x=new() {Value=0.5m,Minimum=-10,Maximum=10,DecimalPlaces=1,Increment=0.1m,Width=65};
     readonly NumericUpDown y=new() {Minimum=-10,Maximum=10,DecimalPlaces=1,Increment=0.1m,Width=65};
     readonly string product;
     readonly IReadOnlyList<BomLabel> labels;

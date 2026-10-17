@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.0"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.1"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -165,6 +165,15 @@ public sealed class MainForm : Form
             var updated=pieces.ToArray(); updated[number-1]=value;
             if(updated.Sum(n=>(long)n)<=int.MaxValue) SetPieces(row,updated);
         };
+        grid.CellValueChanged += (_, _) => grid.Invalidate();
+        grid.RowPostPaint += (_, e) =>
+        {
+            var row=grid.Rows[e.RowIndex];
+            if(boards<=0 || !StockCheck.IsShort(Convert.ToString(row.Cells["Package"].Value),row.Cells["Total"].Value as decimal?)) return;
+            using var pen=new Pen(Appearance.Ink,3);
+            int right=Math.Min(e.RowBounds.Right,grid.ClientSize.Width-(grid.Controls.OfType<VScrollBar>().Any(s=>s.Visible)?SystemInformation.VerticalScrollBarWidth:0));
+            e.Graphics.DrawRectangle(pen,new Rectangle(e.RowBounds.Left+2,e.RowBounds.Top+1,Math.Max(1,right-e.RowBounds.Left-4),e.RowBounds.Height-3));
+        };
         BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
     }
     void BuildWorkspace(Button load, Button save, Button preview, Button print, Button single,
@@ -234,7 +243,14 @@ public sealed class MainForm : Form
             };
             return button;
         }
-        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel,
+        var subset = new Button {Text="Сохранить часть BOM…",AutoSize=true};
+        subset.Click+=(_,_)=>Run(()=>
+        {
+            if(source==null) throw new InvalidOperationException("Сначала загрузите BOM.");
+            using var pick=new Picker("Какие строки сохранить в отдельный Excel?",["Все строки","Только жёлтые","Только зелёные","Только красные","Выделенные вручную (Ctrl/Shift)"]);
+            if(pick.ShowDialog(this)==DialogResult.OK) ExportBom(pick.Index,true);
+        });
+        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel, subset,
             ColorButton("Зелёный", Color.FromArgb(198,239,206)), ColorButton("Жёлтый", Color.FromArgb(255,235,156)),
             ColorButton("Красный", Color.FromArgb(255,199,206)), ColorButton("Без заливки", Color.Empty));
         foreach (Button button in rowActions.Controls)
@@ -387,19 +403,29 @@ public sealed class MainForm : Form
             row.Cells["Total"].ErrorText = total == null ? "Введите положительное количество на одну плату; результат должен помещаться в число." : "";
         }
     }
-    bool ExportBom()
+    bool ExportBom(int filter = 0, bool separate = false)
     {
         if(!grid.EndEdit()) throw new InvalidDataException("Исправьте количество в упаковке перед сохранением.");
         if (source == null) throw new InvalidOperationException("Сначала загрузите BOM.");
+        var exportRows=grid.Rows.Cast<DataGridViewRow>().Where(r=>!r.IsNewRow && r.DataGridView==grid).Where(row=>filter switch
+        {
+            1=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(255,235,156).ToArgb(),
+            2=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(198,239,206).ToArgb(),
+            3=>row.DefaultCellStyle.BackColor.ToArgb()==Color.FromArgb(255,199,206).ToArgb(),
+            4=>row.Selected,
+            _=>true
+        }).ToArray();
+        if(separate && exportRows.Length==0) throw new InvalidOperationException("Нет строк для выбранного варианта сохранения.");
+        string suffix=separate ? new[]{"_COPY","_YELLOW","_GREEN","_RED","_SELECTED"}[filter] : "";
         using var dialog = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true,
-            FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
+            FileName = Path.GetFileNameWithoutExtension(source).Replace("_EDIT", "", StringComparison.OrdinalIgnoreCase) + suffix + "_EDIT.xlsx", InitialDirectory = Path.GetDirectoryName(source), OverwritePrompt = true };
         if (dialog.ShowDialog(this) != DialogResult.OK) return false;
-        if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase) && !editingSavedBom)
+        if (Path.GetFullPath(dialog.FileName).Equals(Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase) && (!editingSavedBom || separate))
             throw new InvalidOperationException("Выберите другое имя файла, чтобы сохранить исходный BOM.");
         RecalculateTotals();
         var columns = grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != "SplitPackages" && (c.Name != "Total" || boards > 0) && (!c.Name.StartsWith("Piece") || c.Visible)).OrderBy(c => c.DisplayIndex).ToArray();
         var headers = columns.Select(c => c.Name switch { "Line" => "Line #", "Designator" => "Designator", "Part" => "PartNumber", "Quantity" => "Quantity", "Summary" => "Summary", "Package" => "Упк, шт", _ => c.HeaderText }).ToArray();
-        var rows = grid.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && r.DataGridView == grid).Select(row =>
+        var rows = exportRows.Select(row =>
         {
             var color = row.DefaultCellStyle.BackColor;
             string? fill = color.IsEmpty ? null : "FF" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
@@ -415,7 +441,7 @@ public sealed class MainForm : Form
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
         status.Text = "Редакция BOM сохранена: " + dialog.FileName;
-        savedState = CaptureState();
+        if(!separate) savedState = CaptureState();
         return true;
     }
     void AddRows()
