@@ -2,6 +2,8 @@ using System.Text.Json;
 namespace LabelCore;
 public sealed record UpdateInfo(string Version, string DownloadUrl)
 {
+    public string? Sha256 { get; init; }
+    public bool Matches(System.Version value) => Normalized(System.Version.Parse(Version)) == Normalized(value);
     static System.Version Normalized(System.Version value) => new(value.Major,value.Minor,Math.Max(value.Build,0),Math.Max(value.Revision,0));
     public bool IsNewerThan(System.Version current) => Normalized(System.Version.Parse(Version)) > Normalized(current);
     public static UpdateInfo Parse(string json)
@@ -12,6 +14,7 @@ public sealed record UpdateInfo(string Version, string DownloadUrl)
            !(url.Host.Equals("github.com",StringComparison.OrdinalIgnoreCase) && url.AbsolutePath.StartsWith("/IWantBugs/thermal-printer-labels/raw/",StringComparison.Ordinal) ||
              url.Host.Equals("raw.githubusercontent.com",StringComparison.OrdinalIgnoreCase) && url.AbsolutePath.StartsWith("/IWantBugs/thermal-printer-labels/",StringComparison.Ordinal)) ||
            !url.AbsolutePath.EndsWith(".zip",StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Некорректная ссылка на сборку.");
+        if(info.Sha256 != null && (info.Sha256.Length!=64 || !info.Sha256.All(Uri.IsHexDigit))) throw new InvalidDataException("Некорректная проверочная сумма обновления.");
         return info;
     }
 }

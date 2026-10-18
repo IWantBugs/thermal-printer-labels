@@ -89,3 +89,8 @@ var update=UpdateInfo.Parse("{\"version\":\"1.2.10\",\"downloadUrl\":\"https://g
 if(!update.IsNewerThan(new Version(1,2,9,0)) || update.IsNewerThan(new Version(1,2,10,0)) || update.IsNewerThan(new Version(1,3,0,0))) throw new Exception("Update version comparison failed");
 try { UpdateInfo.Parse("{\"version\":\"2.0.0\",\"downloadUrl\":\"https://example.com/update.zip\"}"); throw new Exception("Foreign update URL accepted"); } catch(InvalidDataException){}
 Console.WriteLine("PASS: update parsing, numeric version order, equality normalization and download URL validation");
+
+var signedUpdate=UpdateInfo.Parse(System.Text.Json.JsonSerializer.Serialize(new {version="1.2.9",downloadUrl="https://github.com/IWantBugs/thermal-printer-labels/raw/main/distribution/thermal-printer-labels-win-x64.zip",sha256=new string('a',64)}));
+if(!signedUpdate.Matches(new Version(1,2,9,0)) || signedUpdate.Matches(new Version(1,2,8,0)) || signedUpdate.Sha256!=new string('a',64)) throw new Exception("Installer metadata failed");
+try {UpdateInfo.Parse(System.Text.Json.JsonSerializer.Serialize(new {version="1.2.9",downloadUrl=signedUpdate.DownloadUrl,sha256="bad"}));throw new Exception("Bad hash accepted");} catch(InvalidDataException){}
+Console.WriteLine("PASS: installer version matching and SHA-256 manifest validation");

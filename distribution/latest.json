@@ -1,4 +1,5 @@
 {
-  "version": "1.2.8",
-  "downloadUrl": "https://github.com/IWantBugs/thermal-printer-labels/raw/main/distribution/thermal-printer-labels-win-x64.zip"
+  "version": "1.2.9",
+  "downloadUrl": "https://github.com/IWantBugs/thermal-printer-labels/raw/main/distribution/thermal-printer-labels-win-x64.zip",
+  "sha256": "1b2d921fcbee68dd004bc4e77cd09fee162b8dcbf14d959aa1409f157f71765c"
 }

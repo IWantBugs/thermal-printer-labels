@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.Http;
 using LabelCore;
 namespace LabelApp;
@@ -29,8 +28,13 @@ internal static class UpdateChecker
                 if(manual) MessageBox.Show(owner,$"Установлена актуальная версия {current.ToString(3)}.","Обновления",MessageBoxButtons.OK,MessageBoxIcon.Information);
                 return;
             }
-            var answer=MessageBox.Show(owner,$"Доступна версия {info.Version}.\nУстановлена версия {current.ToString(3)}.\n\nОткрыть скачивание обновления?\n\nПосле скачивания распакуйте архив, закройте приложение и замените EXE. Ваши BOM-файлы сохраняются отдельно.","Доступно обновление",MessageBoxButtons.YesNo,MessageBoxIcon.Information);
-            if(answer==DialogResult.Yes) Process.Start(new ProcessStartInfo(info.DownloadUrl) {UseShellExecute=true});
+            var answer=MessageBox.Show(owner,$"Доступна версия {info.Version}.\nУстановлена версия {current.ToString(3)}.\n\nСкачать и установить обновление автоматически?\n\nПеред закрытием программа предложит сохранить изменения BOM_EDIT. Затем EXE будет заменён и приложение перезапустится.","Доступно обновление",MessageBoxButtons.YesNo,MessageBoxIcon.Information);
+            if(answer==DialogResult.Yes)
+            {
+                try {await AutoUpdater.InstallAsync(owner,info);}
+                catch(Exception ex) when(ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                {if(!owner.IsDisposed)MessageBox.Show(owner,"Обновление не установлено.\n\n"+ex.Message,"Обновление",MessageBoxButtons.OK,MessageBoxIcon.Error);}
+            }
         }
         catch(Exception ex) when(ex is HttpRequestException or TaskCanceledException or InvalidDataException or System.Text.Json.JsonException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
