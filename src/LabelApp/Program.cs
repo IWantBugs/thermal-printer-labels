@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.6"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.7"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -263,20 +263,20 @@ public sealed class MainForm : Form
         subset.Click+=(_,_)=>Run(()=>
         {
             if(source==null) throw new InvalidOperationException("Сначала загрузите BOM.");
-            using var pick=new Picker("Какие строки сохранить в отдельный Excel?",["Все строки","Жёлтые — в процессе","Зелёные — готово","Красные — дефицит","Выделенные вручную (Ctrl/Shift)","Только светло-синие (давальческие)","Только фиолетовые"]);
+            using var pick=new Picker("Какие строки сохранить в отдельный Excel?",["Все строки","Жёлтые — в процессе","Зелёные — готово","Красные — дефицит","Выделенные вручную (Ctrl/Shift)","Только светло-синие (давальческие)","Фиолетовые — из наличия"]);
             if(pick.ShowDialog(this)==DialogResult.OK) ExportBom(pick.Index>=5 ? pick.Index+1 : pick.Index,true);
         });
         var shortage=new Button {Text="Сохранить дефицит…",AutoSize=true};
         shortage.Click+=(_,_)=>Run(()=>ExportBom(5,true));
         var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel, subset, shortage,
             ColorButton("Зелёный — готово", Color.FromArgb(198,239,206)), ColorButton("Жёлтый — в процессе", Color.FromArgb(255,235,156)),
-            ColorButton("Красный — дефицит", Color.FromArgb(255,199,206)), ColorButton("Давальческая позиция", Color.FromArgb(221,235,247)), ColorButton("Фиолетовый", Color.FromArgb(228,215,245)), ColorButton("Без заливки", Color.Empty));
+            ColorButton("Красный — дефицит", Color.FromArgb(255,199,206)), ColorButton("Давальческая позиция", Color.FromArgb(221,235,247)), ColorButton("Фиолетовый — из наличия", Color.FromArgb(228,215,245)), ColorButton("Без заливки", Color.Empty));
         foreach (Button button in rowActions.Controls)
             if (button.Text == "Зелёный — готово") button.BackColor = Color.FromArgb(198,239,206);
             else if (button.Text == "Жёлтый — в процессе") button.BackColor = Color.FromArgb(255,235,156);
             else if (button.Text == "Красный — дефицит") button.BackColor = Color.FromArgb(255,199,206);
             else if(button.Text=="Давальческая позиция") button.BackColor=Color.FromArgb(221,235,247);
-            else if(button.Text=="Фиолетовый") button.BackColor=Color.FromArgb(228,215,245);
+            else if(button.Text=="Фиолетовый — из наличия") button.BackColor=Color.FromArgb(228,215,245);
         root.Controls.Add(rowActions, 0, 3);
         Appearance.Table(grid);
         var table = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Appearance.Border, Margin = new Padding(0) };
