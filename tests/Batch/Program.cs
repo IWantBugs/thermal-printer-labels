@@ -77,3 +77,10 @@ try {
  if(Bom.Read(notesFile)[0].Rows[1][6]!="Давальческая позиция; Проверить" || BomSession.Colors(notesFile)[0]!="FFDDEBF7") throw new Exception("Notes or customer color lost");
 } finally {File.Delete(notesFile);}
 Console.WriteLine("PASS: notes and light-blue customer row Excel roundtrip");
+
+var purpleFile=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".xlsx");
+try {
+ BomExport.Save(purpleFile,new[]{new BomExportRow(new[]{"1","R1","P","1","","100"},"FFE4D7F5")});
+ if(BomSession.Colors(purpleFile)[0]!="FFE4D7F5") throw new Exception("Purple fill lost");
+} finally {File.Delete(purpleFile);}
+Console.WriteLine("PASS: purple row Excel roundtrip");
