@@ -4,7 +4,7 @@ internal static class Appearance
 {
     public static readonly Color Ink = Color.FromArgb(35, 52, 62);
     public static readonly Color Accent = Color.FromArgb(190, 48, 36);
-    public static readonly Color Background = Color.FromArgb(242, 245, 247);
+    public static readonly Color Background = Color.FromArgb(235, 241, 245);
     public static readonly Color Border = Color.FromArgb(214, 223, 228);
 
     public static void Button(Button button, bool primary = false, bool danger = false)
@@ -17,6 +17,10 @@ internal static class Appearance
         button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(165, 38, 28) : Color.FromArgb(229, 237, 241);
         button.FlatAppearance.MouseDownBackColor = primary ? Color.FromArgb(143, 30, 23) : Color.FromArgb(212, 225, 233);
         button.Cursor = Cursors.Hand;
+        button.FlatAppearance.BorderSize=1;
+        button.Font=new Font("Segoe UI",9.5f,primary?FontStyle.Bold:FontStyle.Regular);
+        button.MinimumSize=new Size(0,34);
+        button.Padding=new Padding(9,4,9,4);
     }
 
     public static void Dialog(Control control)

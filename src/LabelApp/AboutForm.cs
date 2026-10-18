@@ -11,7 +11,14 @@ internal sealed class AboutForm : Form
         StartPosition = FormStartPosition.CenterParent; FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; MinimizeBox = false;
         var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(20), AutoScroll = true };
-        layout.Controls.Add(new Label { AutoSize = true, Text = "SPK Thermal Printer Labels\nВерсия 1.2.9\n\nИзготовитель: SPK\nЭтикетки 58×40 мм из BOM Excel." });
+        var brand=new FlowLayoutPanel {AutoSize=true,WrapContents=false,Margin=new Padding(0,0,0,10)};
+        using var logoStream=Assembly.GetExecutingAssembly().GetManifestResourceStream("SPK.Logo")!;
+        using var logoSource=Image.FromStream(logoStream);
+        var logo=new PictureBox {Image=new Bitmap(logoSource),SizeMode=PictureBoxSizeMode.Zoom,Width=80,Height=80,BackColor=Color.White,Margin=new Padding(0,0,14,0)};
+        FormClosed+=(_,_)=>logo.Image?.Dispose();
+        brand.Controls.Add(logo);
+        brand.Controls.Add(new Label {AutoSize=true,Text="SPK Thermal Printer Labels\nВерсия 1.3.0\n\nИзготовитель: SPK\nЭтикетки 58×40 мм из BOM Excel."});
+        layout.Controls.Add(brand);
         var site = new LinkLabel { AutoSize = true, Text = "spkspb.ru", Margin = new Padding(3, 14, 3, 14) };
         site.LinkClicked += (_, _) =>
         {

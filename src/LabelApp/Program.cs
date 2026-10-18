@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.9"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.3.0"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -185,17 +185,17 @@ public sealed class MainForm : Form
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(18) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int i = 0; i < 6; i++) root.RowStyles.Add(new RowStyle(i == 4 ? SizeType.Percent : SizeType.AutoSize, i == 4 ? 100 : 0));
-        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, BackColor = Appearance.Ink, Padding = new Padding(18, 14, 18, 14), Margin = new Padding(0, 0, 0, 14) };
+        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, BackColor = Color.White, Padding = new Padding(18, 14, 18, 14), Margin = new Padding(0, 0, 0, 14) };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var title = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        title.Controls.Add(new Label { Text = "SPK  /  Этикетки из BOM", AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI", 19, FontStyle.Bold) });
-        title.Controls.Add(new Label { Text = "58 × 40 мм   ·   Word   ·   Xprinter XP-365B", AutoSize = true, ForeColor = Color.FromArgb(191, 207, 215), Margin = new Padding(3, 6, 3, 0) });
+        title.Controls.Add(new Label { Text = "SPK   /   Этикетки из BOM", AutoSize = true, ForeColor = Appearance.Ink, Font = new Font("Segoe UI", 19, FontStyle.Bold) });
+        title.Controls.Add(new Label { Text = "58 × 40 мм   •   Прямая печать   •   Xprinter XP-365B", AutoSize = true, ForeColor = Color.FromArgb(95, 115, 127), Margin = new Padding(3, 6, 3, 0) });
         Appearance.Button(about); about.Padding = new Padding(10, 6, 10, 6); about.Anchor = AnchorStyles.Right;
         using var logoStream = typeof(MainForm).Assembly.GetManifestResourceStream("SPK.Logo")!;
-        using var logoIcon = new System.Drawing.Icon(logoStream, new Size(256, 256));
-        var logo = new PictureBox { Image = logoIcon.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom,
+        using var logoImage = Image.FromStream(logoStream);
+        var logo = new PictureBox { Image = new Bitmap(logoImage), SizeMode = PictureBoxSizeMode.Zoom,
             Width = 76, Height = 76, BackColor = Color.White, Margin = new Padding(0, 0, 14, 0), AccessibleName = "Логотип SPK" };
         FormClosed += (_, _) => logo.Image?.Dispose();
         header.Controls.Add(logo, 0, 0); header.Controls.Add(title, 1, 0); header.Controls.Add(about, 2, 0); root.Controls.Add(header, 0, 0);
@@ -205,7 +205,7 @@ public sealed class MainForm : Form
             foreach (var control in controls)
             {
                 control.Margin = new Padding(4, 4, 8, 4);
-                if (control is Button button) { Appearance.Button(button, button == load || button == print, button == deleteRows); button.Padding = new Padding(10, 6, 10, 6); }
+                if (control is Button button) { Appearance.Button(button, button == load || button.Text == "Печать без Word…", button == deleteRows); button.Padding = new Padding(10, 6, 10, 6); }
                 panel.Controls.Add(control);
             }
             return panel;
@@ -269,16 +269,33 @@ public sealed class MainForm : Form
         });
         var shortage=new Button {Text="Сохранить дефицит…",AutoSize=true};
         shortage.Click+=(_,_)=>Run(()=>ExportBom(5,true));
-        var rowActions = Toolbar(addRows, deleteRows, sortLine, splitPackages, deletePiece, excel, subset, shortage,
-            ColorButton("Зелёный — готово", Color.FromArgb(198,239,206)), ColorButton("Жёлтый — в процессе", Color.FromArgb(255,235,156)),
-            ColorButton("Красный — дефицит", Color.FromArgb(255,199,206)), ColorButton("Давальческая позиция", Color.FromArgb(221,235,247)), ColorButton("Фиолетовый — из наличия", Color.FromArgb(228,215,245)), ColorButton("Без заливки", Color.Empty));
-        foreach (Button button in rowActions.Controls)
-            if (button.Text == "Зелёный — готово") button.BackColor = Color.FromArgb(198,239,206);
-            else if (button.Text == "Жёлтый — в процессе") button.BackColor = Color.FromArgb(255,235,156);
-            else if (button.Text == "Красный — дефицит") button.BackColor = Color.FromArgb(255,199,206);
-            else if(button.Text=="Давальческая позиция") button.BackColor=Color.FromArgb(221,235,247);
-            else if(button.Text=="Фиолетовый — из наличия") button.BackColor=Color.FromArgb(228,215,245);
-        root.Controls.Add(rowActions, 0, 3);
+        var statusButtons=new[]
+        {
+            ColorButton("Зелёный — готово", Color.FromArgb(198,239,206)),
+            ColorButton("Жёлтый — в процессе", Color.FromArgb(255,235,156)),
+            ColorButton("Красный — дефицит", Color.FromArgb(255,199,206)),
+            ColorButton("Давальческая позиция", Color.FromArgb(221,235,247)),
+            ColorButton("Фиолетовый — из наличия", Color.FromArgb(228,215,245)),
+            ColorButton("Без заливки", Color.Empty)
+        };
+        var tabs=new TabControl {Dock=DockStyle.Top,Height=140,Margin=new Padding(0,0,0,12),Padding=new Point(18,8)};
+        void Tab(string text,params Control[] actions)
+        {
+            var tab=new TabPage(text) {BackColor=Color.White,Padding=new Padding(4)};
+            var content=Toolbar(actions);content.AutoScroll=true;
+            tab.Controls.Add(content);tabs.TabPages.Add(tab);
+        }
+        Tab("Строки и упаковки",addRows,deleteRows,sortLine,splitPackages,deletePiece);
+        Tab("Сохранение Excel",excel,subset,shortage);
+        Tab("Статусы строк",statusButtons);
+        Color[] statusColors=[Color.FromArgb(198,239,206),Color.FromArgb(255,235,156),Color.FromArgb(255,199,206),Color.FromArgb(221,235,247),Color.FromArgb(228,215,245),Color.White];
+        for(int i=0;i<statusButtons.Length;i++)
+        {
+            statusButtons[i].BackColor=statusColors[i];
+            statusButtons[i].FlatAppearance.MouseOverBackColor=ControlPaint.Light(statusColors[i],0.2f);
+            statusButtons[i].FlatAppearance.MouseDownBackColor=ControlPaint.Dark(statusColors[i],0.05f);
+        }
+        root.Controls.Add(tabs,0,3);
         Appearance.Table(grid);
         var table = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Appearance.Border, Margin = new Padding(0) };
         table.Controls.Add(grid); root.Controls.Add(table, 0, 4);
