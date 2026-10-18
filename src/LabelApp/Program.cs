@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.7"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.8"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -176,6 +176,7 @@ public sealed class MainForm : Form
             e.Graphics.DrawRectangle(pen,new Rectangle(e.RowBounds.Left+2,e.RowBounds.Top+1,Math.Max(1,right-e.RowBounds.Left-4),e.RowBounds.Height-3));
         };
         BuildWorkspace(load, save, preview, print, single, addRows, deleteRows, sortLine, about);
+        Shown += async (_, _) => await UpdateChecker.CheckAsync(this,false);
     }
     void BuildWorkspace(Button load, Button save, Button preview, Button print, Button single,
         Button addRows, Button deleteRows, Button sortLine, Button about)

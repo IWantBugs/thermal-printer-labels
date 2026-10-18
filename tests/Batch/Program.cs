@@ -84,3 +84,8 @@ try {
  if(BomSession.Colors(purpleFile)[0]!="FFE4D7F5") throw new Exception("Purple fill lost");
 } finally {File.Delete(purpleFile);}
 Console.WriteLine("PASS: purple row Excel roundtrip");
+
+var update=UpdateInfo.Parse("{\"version\":\"1.2.10\",\"downloadUrl\":\"https://github.com/IWantBugs/thermal-printer-labels/raw/main/distribution/thermal-printer-labels-win-x64.zip\"}");
+if(!update.IsNewerThan(new Version(1,2,9,0)) || update.IsNewerThan(new Version(1,2,10,0)) || update.IsNewerThan(new Version(1,3,0,0))) throw new Exception("Update version comparison failed");
+try { UpdateInfo.Parse("{\"version\":\"2.0.0\",\"downloadUrl\":\"https://example.com/update.zip\"}"); throw new Exception("Foreign update URL accepted"); } catch(InvalidDataException){}
+Console.WriteLine("PASS: update parsing, numeric version order, equality normalization and download URL validation");
