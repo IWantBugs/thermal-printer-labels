@@ -12,21 +12,24 @@ internal sealed class NativePrintForm : Form
     readonly NumericUpDown copies=new() {Minimum=1,Maximum=999,Value=1,Width=65};
     readonly NumericUpDown x=new() {Value=0.5m,Minimum=-10,Maximum=10,DecimalPlaces=1,Increment=0.1m,Width=65};
     readonly NumericUpDown y=new() {Minimum=-10,Maximum=10,DecimalPlaces=1,Increment=0.1m,Width=65};
-    readonly string product;
-    readonly IReadOnlyList<BomLabel> labels;
+    readonly Func<int,Bitmap> render;
     int printIndex,printEnd;
     public NativePrintForm(string product,IReadOnlyList<BomLabel> labels)
+        : this(labels.Count,i=>NativeLabelRenderer.Render(product,labels[i]),"SPK · Печать без Word · 58×40 мм") { }
+    public NativePrintForm(string product,int boards)
+        : this(1,_=>NativeLabelRenderer.RenderOrder(product,boards),"SPK · Этикетка заказа · 58×40 мм") { }
+    NativePrintForm(int count,Func<int,Bitmap> render,string title)
     {
-        this.product=product;this.labels=labels;
-        Text="SPK · Печать без Word · 58×40 мм";Size=new Size(1000,700);MinimumSize=new Size(800,500);StartPosition=FormStartPosition.CenterParent;
-        page.Maximum=labels.Count;
+        this.render=render;
+        Text=title;Size=new Size(1000,700);MinimumSize=new Size(800,500);StartPosition=FormStartPosition.CenterParent;
+        page.Maximum=count;
         foreach(string name in PrinterSettings.InstalledPrinters) printers.Items.Add(name);
         printers.SelectedItem=document.PrinterSettings.PrinterName;
         var xp=printers.Items.Cast<string>().FirstOrDefault(n=>n.Contains("XP-365",StringComparison.OrdinalIgnoreCase));
         if(xp!=null) printers.SelectedItem=xp;
         var toolbar=new FlowLayoutPanel {Dock=DockStyle.Top,AutoSize=true,Padding=new Padding(10),WrapContents=true};
         void Field(string title,Control control) {toolbar.Controls.Add(new System.Windows.Forms.Label {Text=title,AutoSize=true,Padding=new Padding(0,5,0,0)});toolbar.Controls.Add(control);}
-        Field("Принтер",printers);Field("Этикетка",page);Field($"из {labels.Count} · копий",copies);
+        Field("Принтер",printers);Field("Этикетка",page);Field($"из {count} · копий",copies);
         Field("Сдвиг X, мм",x);Field("Y, мм",y);
         var settings=new Button {Text="Свойства принтера…",AutoSize=true};
         settings.Click+=(_,_)=>Run(()=> {SelectPrinter();using var setup=new PrintDialog {Document=document,UseEXDialog=true};setup.ShowDialog(this);printers.SelectedItem=document.PrinterSettings.PrinterName;copies.Value=Math.Clamp((int)document.PrinterSettings.Copies,1,999);});
@@ -35,23 +38,23 @@ internal sealed class NativePrintForm : Form
         {
             SelectPrinter();ConfigurePaper();
             document.PrinterSettings.Copies=(short)copies.Value;
-            document.PrinterSettings.MinimumPage=1;document.PrinterSettings.MaximumPage=labels.Count;
-            document.PrinterSettings.FromPage=1;document.PrinterSettings.ToPage=labels.Count;
+            document.PrinterSettings.MinimumPage=1;document.PrinterSettings.MaximumPage=count;
+            document.PrinterSettings.FromPage=1;document.PrinterSettings.ToPage=count;
             using var dialog=new PrintDialog {Document=document,AllowSomePages=true,UseEXDialog=true};
             if(dialog.ShowDialog(this)!=DialogResult.OK)return;
             printers.SelectedItem=document.PrinterSettings.PrinterName;
             copies.Value=Math.Clamp((int)document.PrinterSettings.Copies,1,999);
             ConfigurePaper();
             int start=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.FromPage-1:0;
-            int end=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.ToPage:labels.Count;
-            if(start<0 || end>labels.Count || end<=start) throw new InvalidOperationException("Некорректный диапазон этикеток.");
+            int end=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.ToPage:count;
+            if(start<0 || end>count || end<=start) throw new InvalidOperationException("Некорректный диапазон этикеток.");
             for(int i=start;i<end;i++) {using var check=RenderPage(i);}
             document.Print();
         });
         toolbar.Controls.AddRange([settings,print]);
         var hint=new System.Windows.Forms.Label {Dock=DockStyle.Bottom,Height=55,Padding=new Padding(12),Text="Предпросмотр увеличен для просмотра. Печать: 58×40 мм, 100%. В драйвере выберите этикетку 58×40 мм. Начните с одной этикетки; сдвиг X/Y виден в предпросмотре."};
         page.ValueChanged+=(_,_)=>Run(Preview); x.ValueChanged+=(_,_)=>Run(Preview); y.ValueChanged+=(_,_)=>Run(Preview);
-        document.BeginPrint+=(_,_)=> {printIndex=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.FromPage-1:0;printEnd=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.ToPage:labels.Count;};
+        document.BeginPrint+=(_,_)=> {printIndex=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.FromPage-1:0;printEnd=document.PrinterSettings.PrintRange==PrintRange.SomePages?document.PrinterSettings.ToPage:count;};
         document.PrintPage+=(_,e)=>
         {
             using var bitmap=RenderPage(printIndex);
@@ -79,7 +82,7 @@ internal sealed class NativePrintForm : Form
     }
     Bitmap RenderPage(int index)
     {
-        var original=NativeLabelRenderer.Render(product,labels[index]);
+        var original=render(index);
         if(x.Value==0 && y.Value==0) return original;
         using(original)
         {

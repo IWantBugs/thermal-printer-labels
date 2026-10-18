@@ -42,7 +42,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { }
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.4"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
+        Text = "SPK · BOM → этикетки 58×40 мм · 1.2.5"; Width = 1280; Height = 780; MinimumSize = new Size(940, 620);
         Font = new Font("Segoe UI", 10); BackColor = Appearance.Background; ForeColor = Appearance.Ink;
         StartPosition = FormStartPosition.CenterScreen; AutoScaleMode = AutoScaleMode.Dpi;
         var load = new Button() { Text = "Открыть BOM…", AutoSize = true }; load.Click += (_, _) => LoadBom();
@@ -228,7 +228,16 @@ public sealed class MainForm : Form
         {
             var row=grid.CurrentRow??throw new InvalidOperationException("Выберите строку.");Generate(row,true);
         });
-        root.Controls.Add(Toolbar(nativePrint,nativeRow,save,preview,print,single),0,2);
+        var orderLabel=new Button {Text="Этикетка заказа без Word…",AutoSize=true};
+        orderLabel.Click+=(_,_)=>Run(()=>
+        {
+            if(source==null) throw new InvalidOperationException("Сначала загрузите BOM.");
+            var name=product.Text.Trim();
+            if(name.EndsWith("BOM",StringComparison.OrdinalIgnoreCase)) name=name[..^3].TrimEnd('_','-',' ');
+            if(name.Length==0) throw new InvalidDataException("Введите название изделия.");
+            using var previewOrder=new NativePrintForm(name,boards);previewOrder.ShowDialog(this);
+        });
+        root.Controls.Add(Toolbar(nativePrint,nativeRow,orderLabel,save,preview,print,single),0,2);
         var excel = new Button { Text = "Сохранить BOM в Excel…", AutoSize = true };
         excel.Click += (_, _) => Run(() => ExportBom());
         Button ColorButton(string text, Color color)

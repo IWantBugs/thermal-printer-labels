@@ -13,6 +13,32 @@ internal static class NativeLabelRenderer
         float height = bold ? 8 : CriticalFields.Height(fontSize,lines);
         return size.Height <= height*Dots && size.Width<=39*Dots+0.5f;
     }
+    public static Bitmap RenderOrder(string product,int boards)
+    {
+        var image=new Bitmap(464,320); image.SetResolution(203.2f,203.2f);
+        try
+        {
+            using var g=Graphics.FromImage(image); g.Clear(Color.White);
+            g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.SingleBitPerPixelGridFit;
+            using var format=(StringFormat)StringFormat.GenericTypographic.Clone();
+            format.Alignment=StringAlignment.Center; format.LineAlignment=StringAlignment.Center;
+            void Draw(string text,RectangleF bounds,float maximum)
+            {
+                for(float size=maximum;size>=6;size-=0.5f)
+                {
+                    using var font=new Font("Arial",size,FontStyle.Bold);
+                    var measured=g.MeasureString(text,font,new SizeF(bounds.Width,10000),format);
+                    if(measured.Height<=bounds.Height && measured.Width<=bounds.Width+0.5f)
+                    {g.DrawString(text,font,Brushes.Black,bounds,format);return;}
+                }
+                throw new InvalidDataException("Название заказа слишком длинное. Сократите поле «Изделие».");
+            }
+            Draw(product,boards>0?new RectangleF(16,16,424,88):new RectangleF(16,16,424,288),24);
+            if(boards>0) Draw($"{boards} плат",new RectangleF(16,112,424,96),32);
+            return image;
+        }
+        catch {image.Dispose();throw;}
+    }
     public static Bitmap Render(string product, BomLabel label)
     {
         var image = new Bitmap(464,320); image.SetResolution(203.2f,203.2f);
